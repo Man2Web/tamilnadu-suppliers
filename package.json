@@ -1,0 +1,52 @@
+{
+  "name": "erp-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack --hostname 0.0.0.0",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint",
+    "setup:admin": "npx tsx scripts/setup-super-admin.ts",
+    "test:qa": "npx tsx tests/orchestrator/runner.ts",
+    "test:security": "npx tsx --test tests/security/*.test.ts"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.9.0",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "@supabase/supabase-js": "^2.112.3",
+    "@tanstack/react-query": "^5.101.4",
+    "bcryptjs": "^3.0.3",
+    "html5-qrcode": "^2.3.8",
+    "jose": "^6.2.9",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "lucide-react": "^1.31.0",
+    "next": "16.3.1",
+    "pg": "^8.23.0",
+    "qrcode": "^1.5.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-hook-form": "^7.85.0",
+    "recharts": "^3.10.1",
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20.19.43",
+    "@types/pg": "^8.21.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.1",
+    "playwright": "^1.62.1",
+    "prisma": "^7.9.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

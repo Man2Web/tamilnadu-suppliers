@@ -1,0 +1,14 @@
+node_modules/
+.next/
+.env
+.env.*
+!.env.example
+dist/
+build/
+coverage/
+.vercel/
+*.log
+*.tsbuildinfo
+
+data/tamilnadu_suppliers_db.json
+supabase/.temp/
