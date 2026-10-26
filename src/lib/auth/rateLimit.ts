@@ -14,8 +14,13 @@ const LOCKOUT_SECONDS = 15 * 60;
 
 export class RateLimitUnavailableError extends Error {
   readonly code?: string;
+  readonly status?: number;
+  readonly endpoint?: string;
 
-  constructor(message = "Login rate-limit store is unavailable", options?: { cause?: unknown; code?: string }) {
+  constructor(
+    message = "Login rate-limit store is unavailable",
+    options?: { cause?: unknown; code?: string; status?: number; endpoint?: string }
+  ) {
     super(message);
     this.name = "RateLimitUnavailableError";
     if (options?.cause !== undefined) {
@@ -24,6 +29,12 @@ export class RateLimitUnavailableError extends Error {
     if (options?.code !== undefined) {
       this.code = options.code;
     }
+    if (options?.status !== undefined) {
+      this.status = options.status;
+    }
+    if (options?.endpoint !== undefined) {
+      this.endpoint = options.endpoint;
+    }
   }
 }
 
@@ -31,7 +42,13 @@ export class RateLimitUnavailableError extends Error {
 export type RpcCaller = (
   fn: string,
   args: Record<string, unknown>
-) => Promise<{ data: unknown; error: { message: string; code?: string } | null }>;
+) => Promise<{
+  data: unknown;
+  error: { message: string; code?: string; details?: string; hint?: string } | null;
+  status?: number;
+  statusText?: string;
+  endpoint?: string;
+}>;
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -92,18 +109,35 @@ export function createRateLimiter(rpc: RpcCaller) {
     try {
       res = await rpc(fn, args);
     } catch (err) {
+      if (err instanceof RateLimitUnavailableError) {
+        throw err;
+      }
       const message = err instanceof Error ? err.message : String(err);
       throw new RateLimitUnavailableError(
-        `Login rate-limit store unavailable: RPC invocation failed (${message})`,
+        `Login rate-limit store unavailable: RPC invocation for '${fn}' failed (${message})`,
         { cause: err }
       );
     }
     if (res.error) {
       const errCode = res.error.code;
       const errMsg = res.error.message || "Unknown error";
+      const hint = res.error.hint;
+      const status = res.status;
+      const statusText = res.statusText;
+      const endpoint = res.endpoint || `RPC '${fn}'`;
+
+      const statusPart = status ? ` HTTP ${status}${statusText ? ` (${statusText})` : ""}` : "";
+      const codePart = errCode ? ` [${errCode}]` : "";
+      const hintPart = hint ? ` (hint: ${hint})` : "";
+
       throw new RateLimitUnavailableError(
-        `Login rate-limit store unavailable: RPC returned error ${errCode ? `[${errCode}] ` : ""}${errMsg}`,
-        { cause: res.error, code: errCode }
+        `Login rate-limit store unavailable: RPC call to '${endpoint}' failed with${statusPart}:${codePart} ${errMsg}${hintPart}`,
+        {
+          cause: res.error,
+          code: errCode,
+          status,
+          endpoint,
+        }
       );
     }
     return res.data;
@@ -145,12 +179,31 @@ export function createRateLimiter(rpc: RpcCaller) {
 
 // Default limiter backed by the Supabase service-role client (loaded lazily).
 const defaultLimiter = createRateLimiter(async (fn, args) => {
-  const { getSupabaseAdminClient } = await import("@/lib/db/supabaseClient");
-  const res = await getSupabaseAdminClient().rpc(fn, args);
-  return {
-    data: res.data,
-    error: res.error ? { message: res.error.message, code: (res.error as { code?: string }).code } : null,
-  };
+  const { getSupabaseAdminClient, getSupabaseUrl } = await import("@/lib/db/supabaseClient");
+  const endpoint = `${getSupabaseUrl() || "https://lznyejowgqwbavtnqqns.supabase.co"}/rest/v1/rpc/${fn}`;
+  try {
+    const res = await getSupabaseAdminClient().rpc(fn, args);
+    const postgrestErr = res.error
+      ? {
+          message: res.error.message,
+          code: (res.error as { code?: string }).code,
+          details: (res.error as { details?: string }).details,
+          hint: (res.error as { hint?: string }).hint,
+        }
+      : null;
+    return {
+      data: res.data,
+      error: postgrestErr,
+      status: res.status,
+      statusText: res.statusText,
+      endpoint,
+    };
+  } catch (err: unknown) {
+    throw new RateLimitUnavailableError(
+      `Login rate-limit store unavailable: RPC call to '${endpoint}' threw error: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err, endpoint }
+    );
+  }
 });
 
 export const checkRateLimit = defaultLimiter.check;

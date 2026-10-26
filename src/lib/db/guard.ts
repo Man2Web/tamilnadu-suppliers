@@ -17,9 +17,24 @@ export interface DbTargetCheck {
   message: string;
 }
 
+/**
+ * Strips surrounding whitespace and quotes (e.g. from Docker/Coolify environment variables).
+ */
+export function cleanEnvValue(val?: string | null): string {
+  if (!val) return "";
+  let cleaned = val.trim();
+  if (
+    (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+    (cleaned.startsWith("'") && cleaned.endsWith("'"))
+  ) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned;
+}
+
 export function verifyDatabaseTarget(): DbTargetCheck {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const databaseUrl = process.env.DATABASE_URL || "";
+  const supabaseUrl = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const databaseUrl = cleanEnvValue(process.env.DATABASE_URL);
 
   // 1. Check for forbidden legacy database identifiers
   for (const forbidden of FORBIDDEN_PROJECT_IDS) {
@@ -45,10 +60,14 @@ export function verifyDatabaseTarget(): DbTargetCheck {
     };
   }
 
-  const isConfigured = Boolean(
-    (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) ||
-    databaseUrl
+  const serviceKey = cleanEnvValue(
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_KEY
   );
+  const anonKey = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+
+  const isConfigured = Boolean((serviceKey || anonKey) || databaseUrl);
 
   return {
     isSafe: true,

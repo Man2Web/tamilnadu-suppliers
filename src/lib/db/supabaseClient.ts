@@ -4,9 +4,13 @@
 // ============================================================================
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { verifyDatabaseTarget, ALLOWED_SUPABASE_PROJECT_ID } from "./guard";
+import { verifyDatabaseTarget, cleanEnvValue } from "./guard";
 
 let adminClientInstance: SupabaseClient | null = null;
+
+export function getSupabaseUrl(): string {
+  return cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_URL);
+}
 
 /**
  * Returns a high-privilege server-side Supabase client using SUPABASE_SERVICE_ROLE_KEY.
@@ -27,8 +31,12 @@ export function getSupabaseAdminClient(): SupabaseClient {
     throw new Error(`[DATABASE TARGET VIOLATION] ${targetCheck.message}`);
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = getSupabaseUrl();
+  const serviceKey = cleanEnvValue(
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_KEY
+  );
 
   if (!supabaseUrl || !serviceKey) {
     throw new Error(
@@ -55,8 +63,8 @@ export function getSupabaseAnonClient(): SupabaseClient {
     throw new Error(`[DATABASE TARGET VIOLATION] ${targetCheck.message}`);
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseUrl = getSupabaseUrl();
+  const anonKey = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
   if (!supabaseUrl || !anonKey) {
     throw new Error(

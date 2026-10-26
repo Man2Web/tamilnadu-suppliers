@@ -86,6 +86,16 @@ describe("login + logout behaviour with shared rate limiting", () => {
     assert.ok(!(res.headers.get("set-cookie") || "").includes("tns_session="));
   });
 
+  it("fails closed with 503 and refuses login when API key is invalid (401)", async () => {
+    rpcFailure = "Invalid API key";
+    const res = await post({ username: "tadmin", password: "correct-password" });
+    assert.equal(res.status, 503);
+    const json = await res.json();
+    assert.equal(json.code, "RATE_LIMIT_UNAVAILABLE");
+    assert.equal(json.error, "Sign-in is temporarily unavailable. Please try again shortly.");
+    assert.ok(!(res.headers.get("set-cookie") || "").includes("tns_session="));
+  });
+
   it("8. logout clears the cookie", async () => {
     const cookie = await cookieFor("u-admin");
     const nreq = new NextRequest("http://localhost:3000/api/auth/logout", { method: "POST", headers: { cookie } });

@@ -112,6 +112,34 @@ describe("shared login rate limiting", () => {
       }
     );
   });
+
+  it("fails CLOSED and reports endpoint and HTTP 401 on Invalid API key", async () => {
+    const rpcUnauthorized = createRateLimiter(async (fn) => ({
+      data: null,
+      error: {
+        message: "Invalid API key",
+        hint: "Double check your Supabase `anon` or `service_role` API key.",
+      },
+      status: 401,
+      statusText: "Unauthorized",
+      endpoint: `https://lznyejowgqwbavtnqqns.supabase.co/rest/v1/rpc/${fn}`,
+    }));
+    await assert.rejects(
+      rpcUnauthorized.check("10.0.0.9", "victim"),
+      (err: any) => {
+        assert.ok(err instanceof RateLimitUnavailableError);
+        assert.equal(err.status, 401);
+        assert.ok(err.message.includes("HTTP 401"));
+        assert.ok(err.message.includes("https://lznyejowgqwbavtnqqns.supabase.co/rest/v1/rpc/login_rate_limit_status"));
+        assert.ok(err.message.includes("Invalid API key"));
+        assert.ok(err.message.includes("hint: Double check your Supabase"));
+        // Never leaks authorization credentials in error message
+        assert.ok(!err.message.includes("Bearer"));
+        assert.ok(!err.message.includes("sb_secret_"));
+        return true;
+      }
+    );
+  });
 });
 
 describe("trusted client IP resolution", () => {
