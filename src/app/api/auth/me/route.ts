@@ -5,10 +5,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getActorFromRequestAsync } from "@/lib/auth/serverAuth";
+import { SESSION_COOKIE_NAME, isCookieSecureForRequest } from "@/lib/auth/session";
 
 export async function GET(req: NextRequest) {
   try {
     const actor = await getActorFromRequestAsync(req);
+    const isSecure = isCookieSecureForRequest(req);
 
     if (actor.isSessionRejected) {
       const response = NextResponse.json(
@@ -21,9 +23,11 @@ export async function GET(req: NextRequest) {
         { status: 401 }
       );
       response.cookies.set({
-        name: "ts_session_token",
+        name: SESSION_COOKIE_NAME,
         value: "",
         httpOnly: true,
+        secure: isSecure,
+        sameSite: "lax",
         path: "/",
         maxAge: 0,
         expires: new Date(0),
@@ -32,13 +36,24 @@ export async function GET(req: NextRequest) {
     }
 
     if (!actor.isAuthenticated || !actor.user) {
-      return NextResponse.json(
+      const response = NextResponse.json(
         {
           authenticated: false,
           user: null,
         },
         { status: 401 }
       );
+      response.cookies.set({
+        name: SESSION_COOKIE_NAME,
+        value: "",
+        httpOnly: true,
+        secure: isSecure,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+        expires: new Date(0),
+      });
+      return response;
     }
 
     return NextResponse.json({

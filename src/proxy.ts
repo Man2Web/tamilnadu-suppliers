@@ -41,6 +41,28 @@ export async function proxy(req: NextRequest) {
 
   // 3. Unauthenticated access handling
   if (!isAuthenticated) {
+    // If a dead, expired, or invalid cookie was presented, evict it
+    if (sessionToken && !session) {
+      if (isApiRoute) {
+        const response = NextResponse.json(
+          {
+            error: "Unauthorized: Authentication required. Please log in.",
+            code: "UNAUTHENTICATED",
+          },
+          { status: 401 }
+        );
+        response.cookies.delete(SESSION_COOKIE_NAME);
+        return response;
+      }
+      if (!isPublicPath) {
+        const loginUrl = new URL("/login", req.url);
+        loginUrl.searchParams.set("from", pathname);
+        const response = NextResponse.redirect(loginUrl);
+        response.cookies.delete(SESSION_COOKIE_NAME);
+        return response;
+      }
+    }
+
     // Allow public routes
     if (isPublicPath) {
       return NextResponse.next();
@@ -66,6 +88,14 @@ export async function proxy(req: NextRequest) {
   }
 
   // 4. Authenticated user handling
+
+  // If user navigated to login after logout (e.g. ?logged_out=1), purge session cookie and stay on login
+  if (isLoginPage && (req.nextUrl.searchParams.has("logged_out") || req.nextUrl.searchParams.has("logout"))) {
+    const response = NextResponse.next();
+    response.cookies.delete(SESSION_COOKIE_NAME);
+    return response;
+  }
+
   // If user must change password on first login
   if (session?.mustChangePassword) {
     if (!isChangePasswordPage && !isChangePasswordApi && !isLogoutApi) {
@@ -106,7 +136,15 @@ export async function proxy(req: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  // Prevent browser back-forward cache (bfcache) from caching protected HTML pages
+  const response = NextResponse.next();
+  if (!isPublicPath) {
+    response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+    response.headers.set("Pragma", "no-cache");
+    response.headers.set("Expires", "0");
+  }
+
+  return response;
 }
 
 export const config = {

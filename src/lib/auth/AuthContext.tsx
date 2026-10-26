@@ -96,26 +96,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [refreshUser]);
 
-  // Fast, debounced client-side logout without cold browser reload
+  // Reliable server-invalidated logout with full history entry replacement
   const logout = useCallback(async () => {
     if (isLoggingOutRef.current) return;
     isLoggingOutRef.current = true;
 
     try {
-      // Optimistically clear local state immediately
+      const res = await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Logout request failed on server.");
+      }
+
+      // Purge local state
       setCurrentUserState(null);
       setUsers([]);
 
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch (err) {
+      // Perform a full browser window replacement to /login?logged_out=1:
+      // 1. Replaces browser history so Back button cannot return to dashboard
+      // 2. Completely clears all client-side React memory, caches, and timers
+      if (typeof window !== "undefined") {
+        window.location.replace("/login?logged_out=1");
+      } else {
+        router.replace("/login?logged_out=1");
+      }
+    } catch (err: unknown) {
       console.error("Logout request failed:", err);
+      const msg = err instanceof Error ? err.message : "Failed to sign out. Please check your network connection and try again.";
+      if (typeof window !== "undefined") {
+        alert(msg);
+      }
     } finally {
       isLoggingOutRef.current = false;
-      router.replace("/login");
-      router.refresh();
     }
   }, [router]);
 

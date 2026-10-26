@@ -37,11 +37,14 @@ export async function stubStore() {
   for (const name of Object.getOwnPropertyNames(proto)) {
     if (name === "constructor" || typeof (store as any)[name] !== "function") continue;
     (store as any)[name] = async (...args: any[]) => {
+      if (overrides[name]) {
+        if (!AUTH_METHODS.has(name)) dataCalls.push(name);
+        return overrides[name](...args);
+      }
       if (name === "getUser") return FAKE_USERS[args[0]];
       if (name === "getSession") return { id: args[0], status: "ACTIVE" };
       if (AUTH_METHODS.has(name)) return undefined;
       dataCalls.push(name);
-      if (overrides[name]) return overrides[name](...args);
       return undefined;
     };
   }

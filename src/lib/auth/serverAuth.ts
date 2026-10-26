@@ -49,26 +49,25 @@ export async function getActorFromRequestAsync(req: Request): Promise<RequestAct
   if (sessionToken) {
     const payload = await verifySessionToken(sessionToken);
     if (payload && payload.sub) {
-      // Check if session has been rejected by Super Admin
+      // Fail-closed session verification: session must exist and have "ACTIVE" status
       if (payload.sid) {
         const currentSession = await store.getSession(payload.sid);
-        if (currentSession && currentSession.status === "REJECTED") {
+        if (!currentSession || currentSession.status !== "ACTIVE") {
+          const isRejected = currentSession?.status === "REJECTED";
           return {
             id: payload.sub,
             userId: payload.sub,
-            name: currentSession.userName,
-            username: currentSession.username,
-            role: payload.role || currentSession.role,
+            name: currentSession?.userName || null,
+            username: currentSession?.username || null,
+            role: payload.role || currentSession?.role || "GUEST",
             sessionId: payload.sid,
-            isSessionRejected: true,
+            isSessionRejected: isRejected,
             user: null,
             isAuthenticated: false,
             hasPermission: () => false,
           };
         }
-        if (currentSession && currentSession.status === "ACTIVE") {
-          await store.touchSession(payload.sid);
-        }
+        await store.touchSession(payload.sid);
       }
 
       const user = await store.getUser(payload.sub);

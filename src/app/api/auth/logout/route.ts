@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
+import { SESSION_COOKIE_NAME, verifySessionToken, isCookieSecureForRequest } from "@/lib/auth/session";
 import store from "@/lib/db/store";
 
 export async function POST(req: NextRequest) {
@@ -61,12 +61,13 @@ export async function POST(req: NextRequest) {
     message: "Logged out successfully",
   });
 
-  // Explicitly clear session cookie across root path
+  // Explicitly clear session cookie across root path matching all security attributes
+  const isSecure = isCookieSecureForRequest(req);
   response.cookies.set({
     name: SESSION_COOKIE_NAME,
     value: "",
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecure,
     sameSite: "lax",
     path: "/",
     maxAge: 0,

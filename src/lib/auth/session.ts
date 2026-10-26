@@ -119,18 +119,20 @@ export function isCookieSecureForRequest(req?: {
   if (explicit === "false" || explicit === "0") return false;
   if (explicit === "true" || explicit === "1") return true;
 
-  if (process.env.NODE_ENV === "production") {
-    if (!req) return true;
+  if (req) {
     const proto = (
       req.headers?.get("x-forwarded-proto") ||
       req.nextUrl?.protocol ||
       ""
     ).toLowerCase();
+    if (proto === "https" || proto === "https:") {
+      return true;
+    }
     if (proto === "http" || proto === "http:") {
       return false;
     }
-    return true;
   }
-  return false;
+
+  return process.env.NODE_ENV === "production";
 }
 
