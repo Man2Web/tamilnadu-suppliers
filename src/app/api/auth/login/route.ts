@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit, RateLimitUnavailableError } from "@/lib/auth/rateLimit";
 import { getTrustedClientIp } from "@/lib/auth/clientIp";
-import { createSessionToken, SESSION_COOKIE_NAME, SESSION_COOKIE_OPTIONS } from "@/lib/auth/session";
+import { createSessionToken, SESSION_COOKIE_OPTIONS } from "@/lib/auth/session";
 
 export async function POST(req: NextRequest) {
   try {
@@ -145,10 +145,13 @@ export async function POST(req: NextRequest) {
     });
 
     return response;
-  } catch (err: any) {
+  } catch (err: unknown) {
     // Fail closed: if throttling cannot be enforced, refuse the attempt rather than allow unlimited guesses
     if (err instanceof RateLimitUnavailableError) {
-      console.error("Login rate-limit store unavailable; refusing login attempt.");
+      console.error(
+        "Login rate-limit store unavailable; refusing login attempt.",
+        err.message ? `Details: ${err.message}` : ""
+      );
       return NextResponse.json(
         { error: "Sign-in is temporarily unavailable. Please try again shortly.", code: "RATE_LIMIT_UNAVAILABLE" },
         { status: 503 }

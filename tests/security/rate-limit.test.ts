@@ -61,14 +61,56 @@ describe("shared login rate limiting", () => {
     assert.ok(!/secretuser/i.test(raw) && !raw.includes("203.0.113.9"));
   });
 
-  it("fails CLOSED when the store errors", async () => {
+  it("fails CLOSED when the store errors, preserving error diagnosis", async () => {
     const rl = createRateLimiter(createFakeRateLimitRpc({ failWith: "boom" }).rpc);
-    await assert.rejects(rl.check("10.0.0.9", "x"), RateLimitUnavailableError);
-    await assert.rejects(rl.recordFailure("10.0.0.9", "x"), RateLimitUnavailableError);
+    await assert.rejects(
+      rl.check("10.0.0.9", "x"),
+      (err: any) => {
+        assert.ok(err instanceof RateLimitUnavailableError);
+        assert.ok(err.message.includes("boom"));
+        return true;
+      }
+    );
+    await assert.rejects(
+      rl.recordFailure("10.0.0.9", "x"),
+      (err: any) => {
+        assert.ok(err instanceof RateLimitUnavailableError);
+        assert.ok(err.message.includes("boom"));
+        return true;
+      }
+    );
     const throwing = createRateLimiter(async () => {
       throw new Error("network down");
     });
-    await assert.rejects(throwing.check("10.0.0.9", "x"), RateLimitUnavailableError);
+    await assert.rejects(
+      throwing.check("10.0.0.9", "x"),
+      (err: any) => {
+        assert.ok(err instanceof RateLimitUnavailableError);
+        assert.ok(err.message.includes("network down"));
+        assert.ok(err.cause instanceof Error);
+        return true;
+      }
+    );
+  });
+
+  it("fails CLOSED and preserves error code when database schema/rpc is missing (PGRST202)", async () => {
+    const rpcMissing = createRateLimiter(async () => ({
+      data: null,
+      error: {
+        code: "PGRST202",
+        message: "Could not find the function public.login_rate_limit_status(p_key) in the schema cache",
+      },
+    }));
+    await assert.rejects(
+      rpcMissing.check("10.0.0.9", "missing"),
+      (err: any) => {
+        assert.ok(err instanceof RateLimitUnavailableError);
+        assert.equal(err.code, "PGRST202");
+        assert.ok(err.message.includes("PGRST202"));
+        assert.ok(err.message.includes("login_rate_limit_status"));
+        return true;
+      }
+    );
   });
 });
 

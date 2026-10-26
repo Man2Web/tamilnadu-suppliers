@@ -71,7 +71,19 @@ describe("login + logout behaviour with shared rate limiting", () => {
     rpcFailure = "relation does not exist";
     const res = await post({ username: "tadmin", password: "correct-password" });
     assert.equal(res.status, 503);
+    const json = await res.json();
+    assert.equal(json.code, "RATE_LIMIT_UNAVAILABLE");
+    assert.equal(json.error, "Sign-in is temporarily unavailable. Please try again shortly.");
     assert.ok(!(res.headers.get("set-cookie") || "").includes("tns_session=ey"));
+  });
+
+  it("fails closed with 503 and refuses login when rate-limit RPC function is missing (PGRST202)", async () => {
+    rpcFailure = "Could not find the function public.login_rate_limit_status(p_key) in the schema cache";
+    const res = await post({ username: "tadmin", password: "correct-password" });
+    assert.equal(res.status, 503);
+    const json = await res.json();
+    assert.equal(json.code, "RATE_LIMIT_UNAVAILABLE");
+    assert.ok(!(res.headers.get("set-cookie") || "").includes("tns_session="));
   });
 
   it("8. logout clears the cookie", async () => {

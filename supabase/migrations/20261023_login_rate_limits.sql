@@ -24,6 +24,7 @@ CREATE INDEX IF NOT EXISTS idx_login_rate_limits_window ON public.login_rate_lim
 -- Only the service role (server) may touch this table; no policies = no access for anon/authenticated.
 ALTER TABLE public.login_rate_limits ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.login_rate_limits FROM anon, authenticated;
+GRANT ALL ON TABLE public.login_rate_limits TO service_role;
 
 -- Is this key currently locked?
 CREATE OR REPLACE FUNCTION public.login_rate_limit_status(p_key TEXT)
@@ -104,3 +105,4 @@ REVOKE ALL ON FUNCTION public.login_rate_limit_clear(TEXT) FROM PUBLIC, anon, au
 GRANT EXECUTE ON FUNCTION public.login_rate_limit_status(TEXT) TO service_role;
 GRANT EXECUTE ON FUNCTION public.login_rate_limit_record_failure(TEXT, INTEGER, INTEGER, INTEGER) TO service_role;
 GRANT EXECUTE ON FUNCTION public.login_rate_limit_clear(TEXT) TO service_role;
+NOTIFY pgrst, 'reload schema';

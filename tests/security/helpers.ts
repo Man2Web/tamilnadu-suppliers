@@ -8,10 +8,10 @@ import fs from "fs";
 // Safe, fake configuration (no real credentials). Must be set before importing app modules.
 export const TEST_SESSION_SECRET = "test-only-session-secret-0123456789-abcdefghijklmnop";
 process.env.SESSION_SECRET = TEST_SESSION_SECRET;
-process.env.NEXT_PUBLIC_SUPABASE_URL = "https://lznyejowgqwbavtnqqns.supabase.co";
-process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key-not-real";
-process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key-not-real";
-process.env.TRUSTED_PROXY_COUNT = "1";
+process.env.NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://lznyejowgqwbavtnqqns.supabase.co";
+process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "test-service-key-not-real";
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "test-anon-key-not-real";
+process.env.TRUSTED_PROXY_COUNT = process.env.TRUSTED_PROXY_COUNT || "1";
 
 import { ADMIN_PRESET_PERMISSIONS, BILLING_PRESET_PERMISSIONS, ALL_PERMISSIONS } from "../../src/lib/types/permissions";
 
