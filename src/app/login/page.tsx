@@ -4,6 +4,7 @@ import React, { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Lock, User, Eye, EyeOff, ShieldCheck, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { interpretLoginResponse, isSessionCookieStored, COOKIE_NOT_STORED_MESSAGE } from "@/lib/auth/loginResponse";
 
 function LoginForm() {
   const router = useRouter();
@@ -32,6 +33,11 @@ function LoginForm() {
 
     setLoading(true);
 
+    // Abort a request that never completes so the form can never spin forever
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    let isNavigating = false;
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
@@ -42,35 +48,53 @@ function LoginForm() {
           username: cleanUsername,
           password: cleanPassword,
         }),
+        signal: controller.signal,
       });
 
-      const data = await res.json();
+      // Every completed response (any status, JSON or not) maps to a message below
+      const outcome = await interpretLoginResponse(res);
 
-      if (!res.ok) {
-        // Enforce generic message or rate limit message
-        setErrorMessage(data.error || "Invalid username or password.");
-        setLoading(false);
+      if (outcome.ok === false) {
+        setErrorMessage(outcome.message);
+        return;
+      }
+
+      // The server accepted the credentials; make sure the browser kept the session cookie
+      // (secure cookies are dropped on plain http:// and would otherwise bounce back to /login)
+      if (!(await isSessionCookieStored())) {
+        setErrorMessage(COOKIE_NOT_STORED_MESSAGE);
         return;
       }
 
       // Populate context state immediately
-      if (data.user) {
-        setCurrentUser(data.user);
+      if (outcome.user) {
+        setCurrentUser(outcome.user as Parameters<typeof setCurrentUser>[0]);
       }
 
       // Fast client-side navigation without cold full-page reload
-      const target = data.user?.mustChangePassword
+      const target = outcome.user?.mustChangePassword
         ? "/change-password"
         : from.startsWith("/")
         ? from
         : "/dashboard";
 
+      isNavigating = true;
       router.replace(target);
       router.refresh();
+      // Safety net: if navigation has not left this page shortly, stop the spinner
+      setTimeout(() => setLoading(false), 10000);
     } catch (err) {
       console.error("Login failure:", err);
-      setErrorMessage("Network error: Unable to connect to server. Please try again.");
-      setLoading(false);
+      setErrorMessage(
+        err instanceof DOMException && err.name === "AbortError"
+          ? "The server took too long to respond. Please try again."
+          : "Network error: Unable to connect to server. Please try again."
+      );
+    } finally {
+      clearTimeout(timeout);
+      if (!isNavigating) {
+        setLoading(false);
+      }
     }
   };
 

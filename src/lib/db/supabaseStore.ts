@@ -3098,12 +3098,24 @@ export class SupabaseStore {
 
   async verifyCredentialsAsync(username: string, password: string): Promise<User | null> {
     const user = await this.getUserByUsernameOrEmail(username, true);
-    if (!user || !user.passwordHash || user.status !== "ACTIVE") {
+    if (!user) {
+      console.warn(`[login:credential-lookup] User '${username}' not found in database`);
+      return null;
+    }
+    if (user.status !== "ACTIVE") {
+      console.warn(`[login:credential-lookup] User '${username}' account status is '${user.status}' (not ACTIVE)`);
+      return null;
+    }
+    if (!user.passwordHash) {
+      console.warn(`[login:credential-lookup] User '${username}' has no password hash configured`);
       return null;
     }
 
     const matches = await bcrypt.compare(password, user.passwordHash);
-    if (!matches) return null;
+    if (!matches) {
+      console.warn(`[login:password-verification] Password hash comparison failed for user '${username}'`);
+      return null;
+    }
 
     return mapUserFromRow(user, false);
   }

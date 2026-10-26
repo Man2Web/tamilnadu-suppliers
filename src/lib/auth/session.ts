@@ -5,6 +5,7 @@
 
 import { SignJWT, jwtVerify } from "jose";
 import { User, UserRole } from "@/lib/types";
+import { cleanEnvValue } from "@/lib/db/guard";
 
 export const SESSION_COOKIE_NAME = "tns_session";
 
@@ -31,7 +32,7 @@ let cachedSecretSource: string | null = null;
  * error in every environment, and the secret value is never logged.
  */
 export function getSessionSecret(): Uint8Array {
-  const raw = (process.env.SESSION_SECRET || "").trim();
+  const raw = cleanEnvValue(process.env.SESSION_SECRET);
 
   if (cachedSecret && cachedSecretSource === raw) return cachedSecret;
 
@@ -67,7 +68,7 @@ export async function createSessionToken(user: User, sessionId?: string): Promis
     mustChangePassword: !!user.mustChangePassword,
   };
 
-  return await new SignJWT(payload as any)
+  return await new SignJWT(payload as unknown as Record<string, unknown>)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")

@@ -5,8 +5,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import store from "@/lib/db/store";
-import { checkRateLimit, recordFailedAttempt, clearRateLimit, RateLimitUnavailableError } from "@/lib/auth/rateLimit";
+import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/auth/rateLimit";
 import { getTrustedClientIp } from "@/lib/auth/clientIp";
+import { classifyLoginFailure } from "@/lib/auth/loginDiagnostics";
 import { createSessionToken, SESSION_COOKIE_OPTIONS } from "@/lib/auth/session";
 
 export async function POST(req: NextRequest) {
@@ -20,6 +21,7 @@ export async function POST(req: NextRequest) {
 
     // Basic payload validation
     if (!username || !password) {
+      console.warn(`[login:request-validation] Missing ${!username ? "username" : "password"} (ip: ${ip})`);
       return NextResponse.json(
         { error: "Invalid username or password." },
         { status: 400 }
@@ -29,6 +31,9 @@ export async function POST(req: NextRequest) {
     // Rate-limiting check against brute-force attacks
     const rateLimitCheck = await checkRateLimit(trustedIp, username);
     if (rateLimitCheck.isBlocked) {
+      console.warn(
+        `[login:rate-limiting] Blocked user '${username}' (ip: ${ip}, retryAfterMinutes: ${rateLimitCheck.retryAfterMinutes})`
+      );
       return NextResponse.json(
         {
           error: `Too many failed login attempts. Please try again in ${rateLimitCheck.retryAfterMinutes} minutes.`,
@@ -47,6 +52,7 @@ export async function POST(req: NextRequest) {
     const user = await store.verifyCredentialsAsync(username, password);
 
     if (!user) {
+      console.warn(`[login:credential-verification] Failed for user '${username}' (ip: ${ip})`);
       await recordFailedAttempt(trustedIp, username);
       // Record audit log for failed login attempt (do not disclose secrets or password)
       await store.recordAuditLog({
@@ -81,17 +87,29 @@ export async function POST(req: NextRequest) {
     await clearRateLimit(trustedIp, username);
 
     // Create server-side session
-    const session = await store.createSession({
-      userId: user.id,
-      userName: user.name,
-      username: user.username || user.email,
-      role: user.role,
-      ipAddress: ip,
-      userAgent: req.headers.get("user-agent") || undefined,
-    });
+    let session;
+    try {
+      session = await store.createSession({
+        userId: user.id,
+        userName: user.name,
+        username: user.username || user.email,
+        role: user.role,
+        ipAddress: ip,
+        userAgent: req.headers.get("user-agent") || undefined,
+      });
+    } catch (sessionErr: unknown) {
+      console.error(`[login:session-creation] Failed for user '${user.username || user.email}'`);
+      throw sessionErr;
+    }
 
     // Create cryptographically signed JWT session token with session ID (sid)
-    const token = await createSessionToken(user, session.id);
+    let token: string;
+    try {
+      token = await createSessionToken(user, session.id);
+    } catch (tokenErr: unknown) {
+      console.error(`[login:cookie-setup] Session token signing failed`);
+      throw tokenErr;
+    }
 
     // Record audit log for successful sign-in
     await store.recordAuditLog({
@@ -139,28 +157,25 @@ export async function POST(req: NextRequest) {
     });
 
     // Set secure HttpOnly session cookie
-    response.cookies.set({
-      ...SESSION_COOKIE_OPTIONS,
-      value: token,
-    });
+    try {
+      response.cookies.set({
+        ...SESSION_COOKIE_OPTIONS,
+        value: token,
+      });
+    } catch (cookieErr: unknown) {
+      console.error(`[login:cookie-setup] Cookie serialization failed`);
+      throw cookieErr;
+    }
 
     return response;
   } catch (err: unknown) {
-    // Fail closed: if throttling cannot be enforced, refuse the attempt rather than allow unlimited guesses
-    if (err instanceof RateLimitUnavailableError) {
-      console.error(
-        "Login rate-limit store unavailable; refusing login attempt.",
-        err.message ? `Details: ${err.message}` : ""
-      );
-      return NextResponse.json(
-        { error: "Sign-in is temporarily unavailable. Please try again shortly.", code: "RATE_LIMIT_UNAVAILABLE" },
-        { status: 503 }
-      );
-    }
-    console.error("Login route error:", err);
+    // Every failure gets a distinct, safe client code plus a sanitized server log line.
+    // Rate-limit store failures still fail CLOSED (no session is ever issued).
+    const failure = classifyLoginFailure(err);
+    console.error(`[login] ${failure.code}: ${failure.logDetail}`);
     return NextResponse.json(
-      { error: "An unexpected error occurred during login." },
-      { status: 500 }
+      { error: failure.clientMessage, code: failure.code },
+      { status: failure.status }
     );
   }
 }

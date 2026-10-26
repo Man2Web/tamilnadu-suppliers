@@ -4,12 +4,14 @@
 // proxy we operate. They are therefore ignored unless TRUSTED_PROXY_COUNT is set.
 // ============================================================================
 
+import { cleanEnvValue } from "@/lib/db/guard";
+
 /**
  * TRUSTED_PROXY_COUNT = number of reverse proxies you operate in front of the app
  * (e.g. 1 for nginx). 0 / unset = do not trust any forwarded header.
  */
 export function getTrustedProxyCount(): number {
-  const raw = (process.env.TRUSTED_PROXY_COUNT || "0").trim();
+  const raw = cleanEnvValue(process.env.TRUSTED_PROXY_COUNT) || "0";
   if (!/^\d{1,2}$/.test(raw)) {
     throw new Error("[CONFIG] TRUSTED_PROXY_COUNT must be a small non-negative integer (e.g. 0 or 1).");
   }
