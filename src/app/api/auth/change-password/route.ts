@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { getActorFromRequestAsync } from "@/lib/auth/serverAuth";
-import { createSessionToken, SESSION_COOKIE_OPTIONS } from "@/lib/auth/session";
+import { createSessionToken, SESSION_COOKIE_OPTIONS, isCookieSecureForRequest } from "@/lib/auth/session";
 
 export async function POST(req: NextRequest) {
   try {
@@ -72,13 +72,15 @@ export async function POST(req: NextRequest) {
 
     response.cookies.set({
       ...SESSION_COOKIE_OPTIONS,
+      secure: isCookieSecureForRequest(req),
       value: updatedToken,
     });
 
     return response;
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Failed to update password.";
     return NextResponse.json(
-      { error: err.message || "Failed to update password." },
+      { error: message },
       { status: 400 }
     );
   }

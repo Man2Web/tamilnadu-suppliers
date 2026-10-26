@@ -55,4 +55,28 @@ describe("SESSION_SECRET configuration (no hard-coded fallback)", () => {
     assert.equal(mod.SESSION_COOKIE_OPTIONS.sameSite, "lax");
     assert.equal(mod.SESSION_COOKIE_OPTIONS.secure, process.env.NODE_ENV === "production");
   });
+
+  it("isCookieSecureForRequest adapts to HTTPS, plain HTTP, and COOKIE_SECURE override", async () => {
+    const { isCookieSecureForRequest } = await import("../../src/lib/auth/session");
+    const origEnv = process.env.NODE_ENV;
+    try {
+      (process.env as any).NODE_ENV = "production";
+
+      // Standard HTTPS via reverse proxy
+      assert.equal(isCookieSecureForRequest({ headers: { get: () => "https" } }), true);
+
+      // Plain HTTP (direct IP access without SSL)
+      assert.equal(isCookieSecureForRequest({ headers: { get: () => "http" } }), false);
+
+      // Explicit COOKIE_SECURE override
+      process.env.COOKIE_SECURE = "false";
+      assert.equal(isCookieSecureForRequest({ headers: { get: () => "https" } }), false);
+
+      process.env.COOKIE_SECURE = "true";
+      assert.equal(isCookieSecureForRequest({ headers: { get: () => "http" } }), true);
+    } finally {
+      (process.env as any).NODE_ENV = origEnv;
+      delete process.env.COOKIE_SECURE;
+    }
+  });
 });

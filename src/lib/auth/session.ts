@@ -103,3 +103,34 @@ export const SESSION_COOKIE_OPTIONS = {
   path: "/",
   maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
 };
+
+/**
+ * Determines whether the session cookie should have the Secure flag.
+ * - If COOKIE_SECURE is explicitly set ("false"/"0" or "true"/"1"), honors that setting.
+ * - If running in production, defaults to true on HTTPS, but safely falls back to false
+ *   if the request is explicitly arriving over plain http:// (e.g. direct IP access in Coolify),
+ *   because browsers strictly drop Secure cookies on unencrypted origins.
+ */
+export function isCookieSecureForRequest(req?: {
+  headers?: { get: (name: string) => string | null };
+  nextUrl?: { protocol?: string };
+}): boolean {
+  const explicit = cleanEnvValue(process.env.COOKIE_SECURE);
+  if (explicit === "false" || explicit === "0") return false;
+  if (explicit === "true" || explicit === "1") return true;
+
+  if (process.env.NODE_ENV === "production") {
+    if (!req) return true;
+    const proto = (
+      req.headers?.get("x-forwarded-proto") ||
+      req.nextUrl?.protocol ||
+      ""
+    ).toLowerCase();
+    if (proto === "http" || proto === "http:") {
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+

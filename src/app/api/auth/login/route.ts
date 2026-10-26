@@ -8,7 +8,7 @@ import store from "@/lib/db/store";
 import { checkRateLimit, recordFailedAttempt, clearRateLimit } from "@/lib/auth/rateLimit";
 import { getTrustedClientIp } from "@/lib/auth/clientIp";
 import { classifyLoginFailure } from "@/lib/auth/loginDiagnostics";
-import { createSessionToken, SESSION_COOKIE_OPTIONS } from "@/lib/auth/session";
+import { createSessionToken, SESSION_COOKIE_OPTIONS, isCookieSecureForRequest } from "@/lib/auth/session";
 
 export async function POST(req: NextRequest) {
   try {
@@ -156,10 +156,11 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Set secure HttpOnly session cookie
+    // Set HttpOnly session cookie (Secure on HTTPS, adaptable for plain HTTP/IP access)
     try {
       response.cookies.set({
         ...SESSION_COOKIE_OPTIONS,
+        secure: isCookieSecureForRequest(req),
         value: token,
       });
     } catch (cookieErr: unknown) {
