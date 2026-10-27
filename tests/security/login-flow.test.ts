@@ -41,6 +41,10 @@ describe("login + logout behaviour with shared rate limiting", () => {
     const json = await res.json();
     assert.equal(json.success, true);
     assert.equal(json.user.role, "ADMIN");
+    // The sidebar renders from these immediately after login (regression: it stayed empty until the next /me refresh)
+    assert.equal(json.user.status, "ACTIVE");
+    assert.ok("permissions" in json.user, "login response must carry permissions");
+    assert.ok(!("passwordHash" in json.user) && !("password" in json.user), "login response must not leak credentials");
     const cookie = res.headers.get("set-cookie") || "";
     assert.match(cookie, /tns_session=[^;]+/);
     assert.match(cookie, /HttpOnly/i);

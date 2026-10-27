@@ -151,7 +151,12 @@ export async function POST(req: NextRequest) {
         id: user.id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
         role: user.role,
+        // status + permissions let the client render the sidebar immediately (same shape as /api/auth/me);
+        // without them every menu item is hidden until the next session refresh.
+        status: user.status,
+        permissions: user.permissions,
         mustChangePassword: !!user.mustChangePassword,
       },
     });

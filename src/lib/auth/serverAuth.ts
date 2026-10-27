@@ -41,7 +41,20 @@ function parseCookies(cookieHeader: string | null): Record<string, string> {
  * Identity comes ONLY from the signed HttpOnly session cookie, re-validated against the database.
  * Client-supplied identity headers (x-user-id / x-user-role) are never trusted.
  */
-export async function getActorFromRequestAsync(req: Request): Promise<RequestActor> {
+const actorCache = new WeakMap<Request, Promise<RequestActor>>();
+
+export function getActorFromRequestAsync(req: Request): Promise<RequestActor> {
+  // Route handlers often resolve the actor twice (permission guard + handler). Resolve it once per request:
+  // the lookup costs two reads and a session write.
+  let pending = actorCache.get(req);
+  if (!pending) {
+    pending = resolveActorFromRequest(req);
+    actorCache.set(req, pending);
+  }
+  return pending;
+}
+
+async function resolveActorFromRequest(req: Request): Promise<RequestActor> {
   const cookieHeader = req.headers.get("cookie");
   const cookies = parseCookies(cookieHeader);
   const sessionToken = cookies[SESSION_COOKIE_NAME];

@@ -9,6 +9,9 @@ export interface LoginUser {
   name?: string;
   email?: string;
   role?: string;
+  phone?: string;
+  status?: string;
+  permissions?: unknown;
   mustChangePassword?: boolean;
 }
 
