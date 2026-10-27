@@ -5,6 +5,7 @@
 
 import { Bill, Quotation, WhatsAppLog } from "../types";
 import { formatINR } from "../calculations/financial";
+import { generateUuid } from "../utils/uuid";
 
 export interface WhatsAppShareOptions {
   recipientPhone: string;
@@ -92,7 +93,7 @@ export function createWhatsAppLogRecord(
   shareMethod: "HANDOFF_WEB" | "API_CLOUD" = "HANDOFF_WEB"
 ): WhatsAppLog {
   return {
-    id: crypto.randomUUID(),
+    id: generateUuid(),
     documentType: options.documentType,
     documentId: options.documentId,
     documentNumber: options.documentNumber,

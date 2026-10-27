@@ -159,24 +159,8 @@ export default function AccountManagementPage() {
     }
   };
 
-  // Permission Guard: Only Super Admin can access
-  if (!isSuperAdmin) {
-    return (
-      <div className="max-w-4xl mx-auto py-12 px-4">
-        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-8 text-center space-y-4 shadow-sm">
-          <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto shadow-inner">
-            <Lock className="w-8 h-8" />
-          </div>
-          <h2 className="text-xl font-bold text-amber-900">Access Denied: Super Admin Authority Required</h2>
-          <p className="text-sm text-amber-800 max-w-lg mx-auto">
-            Account and permission management is strictly reserved for the <strong>Super Administrator</strong>.
-            Ordinary Admin or Billing accounts cannot create accounts or grant themselves elevated privileges.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+  // Hooks must run on every render, so they sit above the early return below (the user loads asynchronously and
+  // isSuperAdmin flips from false to true after the first render).
   const employeeAccounts = useMemo(() => users.filter((u) => u.role !== "SUPER_ADMIN"), [users]);
   const superAdminAccounts = useMemo(() => users.filter((u) => u.role === "SUPER_ADMIN"), [users]);
 
@@ -199,6 +183,24 @@ export default function AccountManagementPage() {
         (u.role && u.role.toLowerCase().includes(query))
     );
   }, [users, tabFilter, employeeAccounts, superAdminAccounts, searchTerm]);
+
+  // Permission Guard: Only Super Admin can access
+  if (!isSuperAdmin) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4">
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-8 text-center space-y-4 shadow-sm">
+          <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto shadow-inner">
+            <Lock className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-amber-900">Access Denied: Super Admin Authority Required</h2>
+          <p className="text-sm text-amber-800 max-w-lg mx-auto">
+            Account and permission management is strictly reserved for the <strong>Super Administrator</strong>.
+            Ordinary Admin or Billing accounts cannot create accounts or grant themselves elevated privileges.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const activeCount = users.filter((u) => u.status === "ACTIVE").length;
   const adminCount = users.filter((u) => u.role === "ADMIN" || u.role === "SUPER_ADMIN").length;

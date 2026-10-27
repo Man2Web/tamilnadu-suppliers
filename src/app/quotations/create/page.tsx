@@ -19,6 +19,7 @@ import {
   calculateDocumentFinancials,
   formatINR,
 } from "@/lib/calculations/financial";
+import { generateUuid } from "@/lib/utils/uuid";
 
 export interface FormLine {
   id: string;
@@ -70,7 +71,7 @@ export default function CreateQuotationPage() {
   // Single unified ordered sequence of products and document notes
   const [lines, setLines] = useState<FormLine[]>([
     {
-      id: crypto.randomUUID(),
+      id: generateUuid(),
       entryType: "product",
       position: 1,
       productId: "",
@@ -150,7 +151,7 @@ export default function CreateQuotationPage() {
     setLines((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: generateUuid(),
         entryType: "product",
         position: prev.length + 1,
         productId: "",
@@ -168,7 +169,7 @@ export default function CreateQuotationPage() {
     setLines((prev) => [
       ...prev,
       {
-        id: crypto.randomUUID(),
+        id: generateUuid(),
         entryType: "note",
         position: prev.length + 1,
         text: "",
@@ -279,7 +280,7 @@ export default function CreateQuotationPage() {
           (l.entryType === "note" && (l.text || "").trim().length > 0)
       )
       .map((l) => ({
-        id: (l.id && l.id.length === 36 && !l.id.startsWith("it-") && !l.id.startsWith("note-")) ? l.id : crypto.randomUUID(),
+        id: (l.id && l.id.length === 36 && !l.id.startsWith("it-") && !l.id.startsWith("note-")) ? l.id : generateUuid(),
         entryType: l.entryType,
         position: l.position,
         productId: l.entryType === "product" ? l.productId : undefined,
