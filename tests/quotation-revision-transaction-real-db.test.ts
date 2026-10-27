@@ -280,7 +280,7 @@ describe("Batch 5.3B — Stage 3: Real PostgreSQL Quotation Revision Transaction
       (err: any) => {
         // Assert error is from constraint violation
         assert.ok(
-          err.message.includes("check constraint") || err.message.includes("violates check constraint") || err.message.includes("quotation_items"),
+          err.message.includes("check constraint") || err.message.includes("outside the allowed range") || err.message.includes("Quantity cannot be negative") || err.message.includes("Something went wrong") || err.message.includes("violates check constraint") || err.message.includes("quotation_items"),
           `Expected constraint violation error, got: ${err.message}`
         );
         return true;

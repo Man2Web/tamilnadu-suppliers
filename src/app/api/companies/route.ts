@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { getActorFromRequestAsync, checkPermissionGuardAsync, requireAuthenticatedAsync } from "@/lib/auth/serverAuth";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(req: Request) {
   const denied = await requireAuthenticatedAsync(req);
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
     const newCompany = await store.createCompany(body, actor.role);
     return NextResponse.json(newCompany, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -35,7 +36,7 @@ export async function PUT(req: Request) {
     const updated = await store.updateCompany(id, updates, actor.role);
     return NextResponse.json(updated);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -51,6 +52,6 @@ export async function DELETE(req: Request) {
     const result = await store.deleteCompany(id, actor.role);
     return NextResponse.json(result);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }

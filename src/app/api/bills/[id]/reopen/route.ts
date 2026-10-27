@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { getActorFromRequestAsync } from "@/lib/auth/serverAuth";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function POST(
   req: Request,
@@ -35,7 +36,7 @@ export async function POST(
     });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || "Failed to reopen bill." },
+      { error: friendlyApiError(err, "Failed to reopen bill.") },
       { status: 400 }
     );
   }

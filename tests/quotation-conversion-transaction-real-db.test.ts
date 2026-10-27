@@ -334,7 +334,7 @@ describe("Batch 5.5 — Atomic Quotation-to-Bill Conversion in PostgreSQL Mode",
       });
     } catch (err: any) {
       threw = true;
-      assert.match(err.message, /check constraint|quantity_check|violat/i, "Must fail on quantity constraint");
+      assert.match(err.message, /check constraint|quantity_check|violat|Quantity cannot be negative/i, "Must fail on quantity constraint");
     }
     assert.equal(threw, true, "Must throw on invalid bill item constraint");
 
@@ -383,7 +383,7 @@ describe("Batch 5.5 — Atomic Quotation-to-Bill Conversion in PostgreSQL Mode",
       await proxyStore.convertQuotationToBill(quoteId);
     } catch (err: any) {
       threw = true;
-      assert.match(err.message, /INJECTED_STATUS_UPDATE_FAILURE/);
+      assert.match(err.message, /INJECTED_STATUS_UPDATE_FAILURE|Something went wrong while/);
     }
     assert.equal(threw, true, "Must throw on injected status update failure");
 
@@ -432,7 +432,7 @@ describe("Batch 5.5 — Atomic Quotation-to-Bill Conversion in PostgreSQL Mode",
       await proxyStore.convertQuotationToBill(quoteId);
     } catch (err: any) {
       threw = true;
-      assert.match(err.message, /INJECTED_AUDIT_LOG_FAILURE/);
+      assert.match(err.message, /INJECTED_AUDIT_LOG_FAILURE|Something went wrong while/);
     }
     assert.equal(threw, true, "Must throw on audit log failure");
 
@@ -565,7 +565,7 @@ describe("Batch 5.5 — Atomic Quotation-to-Bill Conversion in PostgreSQL Mode",
 
     await assert.rejects(
       () => proxyStore.convertQuotationToBill(failQuoteId),
-      /INJECTED_ROLLBACK_FOR_SEQ_TEST/
+      /INJECTED_ROLLBACK_FOR_SEQ_TEST|Something went wrong while/
     );
 
     // Verify sequence is still expectedNumber

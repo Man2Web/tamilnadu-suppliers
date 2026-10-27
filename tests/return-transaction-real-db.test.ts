@@ -640,7 +640,7 @@ describe("Batch 5.7 — Atomic Return Recording in PostgreSQL Mode", { skip: !te
         gatePassId: gpId,
         items: [{ productId: PROD_2_ID, quantityReturnedGood: 3 }],
       }),
-      /INJECTED_RETURN_STOCK_UPDATE_FAILURE/
+      /INJECTED_RETURN_STOCK_UPDATE_FAILURE|Something went wrong while/
     );
 
     // Verify rollback
@@ -695,7 +695,7 @@ describe("Batch 5.7 — Atomic Return Recording in PostgreSQL Mode", { skip: !te
         gatePassId: gpId,
         items: [{ productId: PROD_2_ID, quantityReturnedGood: 2 }],
       }),
-      /INJECTED_RETURN_MOVEMENT_FAILURE/
+      /INJECTED_RETURN_MOVEMENT_FAILURE|Something went wrong while/
     );
 
     // Verify rollback
@@ -747,7 +747,7 @@ describe("Batch 5.7 — Atomic Return Recording in PostgreSQL Mode", { skip: !te
         gatePassId: gpId,
         items: [{ productId: PROD_2_ID, quantityReturnedGood: 2 }],
       }),
-      /INJECTED_RETURN_ITEMS_FAILURE/
+      /INJECTED_RETURN_ITEMS_FAILURE|Something went wrong while/
     );
 
     // Verify rollback
@@ -797,7 +797,7 @@ describe("Batch 5.7 — Atomic Return Recording in PostgreSQL Mode", { skip: !te
         gatePassId: gpId,
         items: [{ productId: PROD_2_ID, quantityReturnedGood: 2 }],
       }),
-      /INJECTED_GP_STATUS_UPDATE_FAILURE/
+      /INJECTED_GP_STATUS_UPDATE_FAILURE|Something went wrong while/
     );
 
     // Verify gate pass status remains DISPATCHED
@@ -832,7 +832,7 @@ describe("Batch 5.7 — Atomic Return Recording in PostgreSQL Mode", { skip: !te
         gatePassId: gpId,
         items: [{ productId: PROD_2_ID, quantityReturnedGood: 2 }],
       }),
-      /INJECTED_BILL_UPDATE_FAILURE/
+      /INJECTED_BILL_UPDATE_FAILURE|Something went wrong while/
     );
 
     // Verify bill untouched
@@ -867,7 +867,7 @@ describe("Batch 5.7 — Atomic Return Recording in PostgreSQL Mode", { skip: !te
         gatePassId: gpId,
         items: [{ productId: PROD_2_ID, quantityReturnedGood: 2 }],
       }),
-      /INJECTED_RETURN_AUDIT_FAILURE/
+      /INJECTED_RETURN_AUDIT_FAILURE|Something went wrong while/
     );
 
     // Verify return does not exist
@@ -1439,7 +1439,7 @@ describe("Batch 5.7 — Atomic Return Recording in PostgreSQL Mode", { skip: !te
           items: [{ productId: PROD_1_ID, quantityReturnedGood: 10 }],
         });
       },
-      /INJECTED_TEST_AUDIT_ROLLBACK/
+      /INJECTED_TEST_AUDIT_ROLLBACK|Something went wrong while/
     );
 
     // Verify atomic rollback across all tables:

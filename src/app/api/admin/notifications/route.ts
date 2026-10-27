@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { getActorFromRequestAsync } from "@/lib/auth/serverAuth";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(req: Request) {
   const actor = await getActorFromRequestAsync(req);
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || "Failed to update notifications." },
+      { error: friendlyApiError(err, "Failed to update notifications.") },
       { status: 400 }
     );
   }

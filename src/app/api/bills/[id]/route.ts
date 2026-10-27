@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { getActorFromRequestAsync, checkAnyPermissionGuardAsync } from "@/lib/auth/serverAuth";
 import { ROUTE_PERMISSIONS } from "@/lib/auth/routePermissions";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(
   req: Request,
@@ -15,7 +16,7 @@ export async function GET(
     if (!bill) return NextResponse.json({ error: "Bill not found" }, { status: 404 });
     return NextResponse.json(bill);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -33,7 +34,7 @@ export async function PUT(
     return NextResponse.json({ success: true, bill: updated });
   } catch (err: any) {
     console.error(`[API /api/bills/id PUT] Error saving bill changes:`, err);
-    return NextResponse.json({ error: err.message || "Failed to update bill" }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err, "Failed to update bill") }, { status: 400 });
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { getActorFromRequestAsync } from "@/lib/auth/serverAuth";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(req: Request) {
   // Can view user list if Super Admin or has users:manage
@@ -47,6 +48,6 @@ export async function POST(req: Request) {
     const newUser = await store.createUser(body, actor.role);
     return NextResponse.json(newUser, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }

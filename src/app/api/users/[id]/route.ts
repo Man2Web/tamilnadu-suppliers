@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { getActorFromRequestAsync } from "@/lib/auth/serverAuth";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(
   req: Request,
@@ -60,7 +61,7 @@ export async function PUT(
     const updated = await store.updateUser(id, body, actor.role);
     return NextResponse.json(updated);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -84,7 +85,7 @@ export async function DELETE(
     const result = await store.deleteUser(id, actor.role);
     return NextResponse.json(result);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -120,6 +121,6 @@ export async function PATCH(
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }

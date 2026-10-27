@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { checkPermissionGuardAsync, checkAnyPermissionGuardAsync } from "@/lib/auth/serverAuth";
 import { ROUTE_PERMISSIONS } from "@/lib/auth/routePermissions";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(req: Request) {
   const denied = await checkAnyPermissionGuardAsync(req, [...ROUTE_PERMISSIONS.catalogRead]);
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
     const product = await store.createProduct(body);
     return NextResponse.json(product, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -55,6 +56,6 @@ export async function PUT(req: Request) {
     const product = await store.updateProduct(id, updates);
     return NextResponse.json(product);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }

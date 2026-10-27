@@ -294,7 +294,7 @@ describe("Batch 5.6 — Atomic Dispatch Recording in PostgreSQL Mode", { skip: !
         customerId: CUSTOMER_ID,
         items: [{ productId: PROD_1_ID, quantityDispatched: 2 }],
       }),
-      /INJECTED_GATE_PASS_INSERT_FAILURE/
+      /INJECTED_GATE_PASS_INSERT_FAILURE|Something went wrong while/
     );
 
     // Verify stock unchanged
@@ -345,7 +345,7 @@ describe("Batch 5.6 — Atomic Dispatch Recording in PostgreSQL Mode", { skip: !
         customerName: "Batch 5.6 Customer Pvt Ltd",
         items: [{ productId: PROD_1_ID, quantityDispatched: 3 }],
       }),
-      /INJECTED_ITEM_INSERT_FAILURE/
+      /INJECTED_ITEM_INSERT_FAILURE|Something went wrong while/
     );
 
     // Verify gate pass rolled back
@@ -384,7 +384,7 @@ describe("Batch 5.6 — Atomic Dispatch Recording in PostgreSQL Mode", { skip: !
         customerName: "Batch 5.6 Customer Pvt Ltd",
         items: [{ productId: PROD_1_ID, quantityDispatched: 2 }],
       }),
-      /INJECTED_PRODUCT_STOCK_FAILURE/
+      /INJECTED_PRODUCT_STOCK_FAILURE|Something went wrong while/
     );
 
     // Verify gate pass does not exist
@@ -439,7 +439,7 @@ describe("Batch 5.6 — Atomic Dispatch Recording in PostgreSQL Mode", { skip: !
         customerName: "Batch 5.6 Customer Pvt Ltd",
         items: [{ productId: PROD_1_ID, quantityDispatched: 2 }],
       }),
-      /INJECTED_INVENTORY_MOVEMENT_FAILURE/
+      /INJECTED_INVENTORY_MOVEMENT_FAILURE|Something went wrong while/
     );
 
     // Verify stock was not deducted
@@ -482,7 +482,7 @@ describe("Batch 5.6 — Atomic Dispatch Recording in PostgreSQL Mode", { skip: !
         billId,
         items: [{ productId: PROD_1_ID, quantityDispatched: 3 }],
       }),
-      /INJECTED_DISPATCH_AUDIT_FAILURE/
+      /INJECTED_DISPATCH_AUDIT_FAILURE|Something went wrong while/
     );
 
     // Assert gate pass was rolled back
@@ -656,7 +656,7 @@ describe("Batch 5.6 — Atomic Dispatch Recording in PostgreSQL Mode", { skip: !
         billId,
         items: [{ productId: PROD_1_ID, quantityDispatched: 2 }],
       }),
-      /INJECTED_FAILURE_DURING_BILL_DISPATCH/
+      /INJECTED_FAILURE_DURING_BILL_DISPATCH|Something went wrong while/
     );
 
     // Verify bill remains completely untouched

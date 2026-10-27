@@ -53,7 +53,7 @@ export function classifyLoginFailure(err: unknown): ClassifiedFailure {
     };
   }
 
-  if (/^(Supabase|Database) error|invalid api key|fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|JWT/i.test(message)) {
+  if (/^(Supabase|Database) error|^Something went wrong while|^The database is not reachable|invalid api key|fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|JWT/i.test(message)) {
     return {
       status: 503,
       code: "AUTH_BACKEND_UNAVAILABLE",

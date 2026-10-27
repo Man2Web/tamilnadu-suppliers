@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { checkAnyPermissionGuardAsync } from "@/lib/auth/serverAuth";
 import { ROUTE_PERMISSIONS } from "@/lib/auth/routePermissions";
 import store from "@/lib/db/store";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(
   req: Request,
@@ -32,7 +33,7 @@ export async function GET(
       status: customer.isActive ? "Active" : "Inactive",
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 500 });
   }
 }
 
@@ -49,6 +50,6 @@ export async function PUT(
     const updated = await store.updateCustomer(id, body);
     return NextResponse.json(updated);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }

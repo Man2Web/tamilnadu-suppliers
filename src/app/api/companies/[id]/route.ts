@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActorFromRequestAsync, requireAuthenticatedAsync, requireSuperAdminAsync } from "@/lib/auth/serverAuth";
 import store from "@/lib/db/store";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(
   req: Request,
@@ -16,7 +17,7 @@ export async function GET(
     }
     return NextResponse.json(company);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -38,7 +39,7 @@ export async function DELETE(
     const result = await store.deleteCompany(id, role);
     return NextResponse.json(result);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -67,7 +68,7 @@ export async function PATCH(
     }
     return NextResponse.json({ error: "Specify isActive status" }, { status: 400 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -84,7 +85,7 @@ export async function PUT(
     const updated = await store.updateCompany(id, body, role as any);
     return NextResponse.json(updated);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 

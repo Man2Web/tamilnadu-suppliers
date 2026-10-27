@@ -8,6 +8,7 @@ import {
   generateWhatsAppHandoffUrl,
   createWhatsAppLogRecord,
 } from "@/lib/whatsapp/share";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function POST(req: Request) {
   const denied = await checkAnyPermissionGuardAsync(req, [...ROUTE_PERMISSIONS.share]);
@@ -62,6 +63,6 @@ export async function POST(req: Request) {
       log: logRecord,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 500 });
   }
 }

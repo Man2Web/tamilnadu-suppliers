@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActorFromRequestAsync } from "@/lib/auth/serverAuth";
 import { SESSION_COOKIE_NAME, isCookieSecureForRequest } from "@/lib/auth/session";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(req: NextRequest) {
   try {
@@ -72,7 +73,7 @@ export async function GET(req: NextRequest) {
   } catch (error: any) {
     console.error("GET /api/auth/me error:", error);
     return NextResponse.json(
-      { error: error?.message || "Failed to resolve session." },
+      { error: friendlyApiError(error, "Failed to resolve session.") },
       { status: 500 }
     );
   }

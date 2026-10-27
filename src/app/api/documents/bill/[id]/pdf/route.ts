@@ -3,6 +3,7 @@ import store from "@/lib/db/store";
 import { generateBillPDF } from "@/lib/pdf/generator";
 import { getActorFromRequestAsync, checkAnyPermissionGuardAsync } from "@/lib/auth/serverAuth";
 import { ROUTE_PERMISSIONS } from "@/lib/auth/routePermissions";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(
   req: Request,
@@ -42,6 +43,6 @@ export async function GET(
       },
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 500 });
   }
 }

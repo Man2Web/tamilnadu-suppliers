@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { getActorFromRequestAsync, checkAnyPermissionGuardAsync } from "@/lib/auth/serverAuth";
 import { ROUTE_PERMISSIONS } from "@/lib/auth/routePermissions";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function POST(
   req: Request,
@@ -16,6 +17,6 @@ export async function POST(
     const updatedBill = await store.resolveDamageMissingIncident(id, incidentId, { ...body, actor }, actor);
     return NextResponse.json({ success: true, bill: updatedBill });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }

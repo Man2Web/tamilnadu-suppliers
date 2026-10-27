@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import store from "@/lib/db/store";
 import { previewProductExcel, buildProductsFromImport } from "@/lib/excel/product-importer";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function POST(req: Request) {
   const denied = await checkAnyPermissionGuardAsync(req, [...ROUTE_PERMISSIONS.productImport]);
@@ -72,6 +73,6 @@ export async function POST(req: Request) {
       errors: importResult.errors,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 500 });
   }
 }

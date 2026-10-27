@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { checkAnyPermissionGuardAsync } from "@/lib/auth/serverAuth";
 import { ROUTE_PERMISSIONS } from "@/lib/auth/routePermissions";
 import store from "@/lib/db/store";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(req: Request) {
   const denied = await checkAnyPermissionGuardAsync(req, [...ROUTE_PERMISSIONS.operationsRead]);
@@ -18,6 +19,6 @@ export async function POST(req: Request) {
     const ret = await store.recordReturn(body);
     return NextResponse.json(ret, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }

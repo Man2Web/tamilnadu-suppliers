@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import store from "@/lib/db/store";
 import { getActorFromRequestAsync, checkAnyPermissionGuardAsync } from "@/lib/auth/serverAuth";
 import { ROUTE_PERMISSIONS } from "@/lib/auth/routePermissions";
+import { friendlyApiError } from "@/lib/db/friendlyError";
 
 export async function GET(
   req: Request,
@@ -15,7 +16,7 @@ export async function GET(
     if (!quote) return NextResponse.json({ error: "Quotation not found" }, { status: 404 });
     return NextResponse.json(quote);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 
@@ -59,7 +60,7 @@ export async function PUT(
     const updated = await store.updateQuotation(id, body, actor);
     return NextResponse.json({ success: true, quotation: updated });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    return NextResponse.json({ error: friendlyApiError(err) }, { status: 400 });
   }
 }
 

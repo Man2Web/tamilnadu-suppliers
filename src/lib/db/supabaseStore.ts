@@ -4,6 +4,7 @@
 // ============================================================================
 
 import bcrypt from "bcryptjs";
+import { friendlyDbError } from "./friendlyError";
 import crypto from "crypto";
 import { getSupabaseAdminClient } from "./supabaseClient";
 import { resolveDbProvider } from "./provider";
@@ -170,7 +171,7 @@ export class SupabaseStore {
       .from("companies")
       .select("*")
       .order("created_at", { ascending: true });
-    if (error) throw new Error(`Database error fetching companies: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching companies", error));
     return (data || []).map(mapCompanyFromRow);
   }
 
@@ -183,7 +184,7 @@ export class SupabaseStore {
       query = (query as any).forUpdate();
     }
     const { data, error } = await query.maybeSingle();
-    if (error) throw new Error(`Database error fetching company ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching company", error));
     return data ? mapCompanyFromRow(data) : undefined;
   }
 
@@ -229,7 +230,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error creating company: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("creating company", error));
     return mapCompanyFromRow(inserted);
   }
 
@@ -248,7 +249,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error updating company ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("updating company", error));
     return mapCompanyFromRow(updated);
   }
 
@@ -258,7 +259,7 @@ export class SupabaseStore {
     }
 
     const { error } = await this.supabase.from("companies").delete().eq("id", id);
-    if (error) throw new Error(`Database error deleting company: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("deleting company", error));
     return { success: true, message: "Company deleted successfully." };
   }
 
@@ -336,7 +337,7 @@ export class SupabaseStore {
       .from("categories")
       .select("*")
       .order("name", { ascending: true });
-    if (error) throw new Error(`Database error fetching categories: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching categories", error));
     return (data || []).map(mapCategoryFromRow);
   }
 
@@ -346,7 +347,7 @@ export class SupabaseStore {
       .select("*")
       .eq("id", id)
       .maybeSingle();
-    if (error) throw new Error(`Database error fetching category ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching category", error));
     return data ? mapCategoryFromRow(data) : undefined;
   }
 
@@ -370,7 +371,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error creating category: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("creating category", error));
     return mapCategoryFromRow(inserted);
   }
 
@@ -382,7 +383,7 @@ export class SupabaseStore {
       .from("products")
       .select("*")
       .order("name", { ascending: true });
-    if (error) throw new Error(`Database error fetching products: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching products", error));
     return (data || []).map(mapProductFromRow);
   }
 
@@ -399,7 +400,7 @@ export class SupabaseStore {
 
     const { data, error } = await query.maybeSingle();
 
-    if (error) throw new Error(`Database error fetching product ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching product", error));
     return data ? mapProductFromRow(data) : undefined;
   }
 
@@ -434,7 +435,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error creating product: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("creating product", error));
     return mapProductFromRow(inserted);
   }
 
@@ -455,7 +456,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error updating product ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("updating product", error));
     return mapProductFromRow(updated);
   }
 
@@ -464,7 +465,7 @@ export class SupabaseStore {
     if (!existing) return false;
 
     const { error } = await this.supabase.from("products").delete().eq("id", existing.id);
-    if (error) throw new Error(`Database error deleting product ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("deleting product", error));
     return true;
   }
 
@@ -476,7 +477,7 @@ export class SupabaseStore {
       .from("customers")
       .select("*")
       .order("name", { ascending: true });
-    if (error) throw new Error(`Database error fetching customers: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching customers", error));
     return (data || []).map(mapCustomerFromRow);
   }
 
@@ -486,7 +487,7 @@ export class SupabaseStore {
       .select("*")
       .eq("id", id)
       .maybeSingle();
-    if (error) throw new Error(`Database error fetching customer ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching customer", error));
     return data ? mapCustomerFromRow(data) : undefined;
   }
 
@@ -511,7 +512,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error creating customer: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("creating customer", error));
     return mapCustomerFromRow(inserted);
   }
 
@@ -529,13 +530,13 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error updating customer ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("updating customer", error));
     return mapCustomerFromRow(updated);
   }
 
   async deleteCustomer(id: string): Promise<boolean> {
     const { error } = await this.supabase.from("customers").delete().eq("id", id);
-    if (error) throw new Error(`Database error deleting customer ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("deleting customer", error));
     return true;
   }
 
@@ -619,7 +620,7 @@ export class SupabaseStore {
       .from("quotations")
       .select("*")
       .order("created_at", { ascending: false });
-    if (error) throw new Error(`Database error fetching quotations: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching quotations", error));
     return (data || []).map((row) => mapQuotationFromRow(row));
   }
 
@@ -632,7 +633,7 @@ export class SupabaseStore {
       query = (query as any).forUpdate();
     }
     const { data, error } = await query.maybeSingle();
-    if (error) throw new Error(`Database error fetching quotation ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching quotation", error));
     if (!data) return undefined;
 
     // Fetch quotation items
@@ -849,7 +850,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error creating quotation: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("creating quotation", error));
 
     // Insert quotation branches and quotation items
     const branchesToInsert = (data.branches && Array.isArray(data.branches) && data.branches.length > 0)
@@ -928,7 +929,7 @@ export class SupabaseStore {
 
       if (itemRows.length > 0) {
         const { error: itemErr } = await this.supabase.from("quotation_items").insert(itemRows);
-        if (itemErr) throw new Error(`Database error inserting quotation items: ${itemErr.message}`);
+        if (itemErr) throw new Error(friendlyDbError("inserting quotation items", itemErr));
       }
 
       createdBranches.push({
@@ -1015,7 +1016,7 @@ export class SupabaseStore {
       if (itemRows.length > 0) {
         const { error: insertErr } = await this.supabase.from("quotation_items").insert(itemRows);
         if (insertErr) {
-          throw new Error(`Database error inserting quotation items: ${insertErr.message}`);
+          throw new Error(friendlyDbError("inserting quotation items", insertErr));
         }
       }
     }
@@ -1073,7 +1074,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error updating quotation ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("updating quotation", error));
 
     if (updates.status !== "CONVERTED") {
       try {
@@ -1167,7 +1168,7 @@ export class SupabaseStore {
       .from("bills")
       .select("*")
       .order("created_at", { ascending: false });
-    if (error) throw new Error(`Database error fetching bills: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching bills", error));
     const billRows = data || [];
     if (billRows.length === 0) return [];
 
@@ -1178,7 +1179,7 @@ export class SupabaseStore {
       .from("gate_passes")
       .select("id, bill_id, status")
       .in("bill_id", billIds);
-    if (gpErr) throw new Error(`Database error fetching gate passes for bills: ${gpErr.message}`);
+    if (gpErr) throw new Error(friendlyDbError("fetching gate passes for bills", gpErr));
 
     const gps = allGps || [];
     const gpIds = gps.map((gp: any) => gp.id).filter(Boolean);
@@ -1200,7 +1201,7 @@ export class SupabaseStore {
         .from("gate_pass_items")
         .select("id, gate_pass_id, quantity_dispatched, quantity_returned, quantity_damaged, quantity_missing")
         .in("gate_pass_id", gpIds);
-      if (gpiErr) throw new Error(`Database error fetching gate pass items for bills: ${gpiErr.message}`);
+      if (gpiErr) throw new Error(friendlyDbError("fetching gate pass items for bills", gpiErr));
 
       for (const gpi of allGpi || []) {
         if (gpi.gate_pass_id) {
@@ -1271,7 +1272,7 @@ export class SupabaseStore {
       query = (query as any).forUpdate();
     }
     const { data, error } = await query.maybeSingle();
-    if (error) throw new Error(`Database error fetching bill ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching bill", error));
     if (!data) return undefined;
 
     // Fetch bill items, branches, payments, and gate passes.
@@ -1716,7 +1717,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error creating bill: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("creating bill", error));
 
     // Insert bill branches and bill items
     const branchesToInsert = (data.branches && Array.isArray(data.branches) && data.branches.length > 0)
@@ -1747,7 +1748,7 @@ export class SupabaseStore {
         branch_subtotal: bSubtotal || financials.subtotal,
         created_at: new Date().toISOString(),
       });
-      if (branchErr) throw new Error(`Database error inserting bill branch: ${branchErr.message}`);
+      if (branchErr) throw new Error(friendlyDbError("inserting bill branch", branchErr));
 
       const branchBillItems: BillItem[] = [];
 
@@ -1809,7 +1810,7 @@ export class SupabaseStore {
 
       if (itemRows.length > 0) {
         const { error: itemErr } = await this.supabase.from("bill_items").insert(itemRows);
-        if (itemErr) throw new Error(`Database error inserting bill items: ${itemErr.message}`);
+        if (itemErr) throw new Error(friendlyDbError("inserting bill items", itemErr));
       }
 
       createdBranches.push({
@@ -2000,7 +2001,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error updating bill ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("updating bill", error));
     const mapped = mapBillFromRow(updated);
     if (updates.status !== undefined) mapped.status = updates.status;
     if (updates.additionalRentalCharges !== undefined) mapped.additionalRentalCharges = updates.additionalRentalCharges;
@@ -2745,7 +2746,7 @@ export class SupabaseStore {
       allBillGpsQuery = (allBillGpsQuery as any).forUpdate();
     }
     const { data: gps, error: gpErr } = await allBillGpsQuery;
-    if (gpErr) throw new Error(`Database error fetching gate passes: ${gpErr.message}`);
+    if (gpErr) throw new Error(friendlyDbError("fetching gate passes", gpErr));
 
     let allBillGps = gps || [];
     if (allBillGps.length === 0) {
@@ -2783,7 +2784,7 @@ export class SupabaseStore {
       gpItemsQuery = (gpItemsQuery as any).forUpdate();
     }
     const { data: fetchedGpItems, error: gpItemsErr } = await gpItemsQuery;
-    if (gpItemsErr) throw new Error(`Database error fetching gate pass items: ${gpItemsErr.message}`);
+    if (gpItemsErr) throw new Error(friendlyDbError("fetching gate pass items", gpItemsErr));
     const allBillGpItems = fetchedGpItems || [];
 
     // Filter candidate items if specific gatePassId was requested
@@ -2952,7 +2953,7 @@ export class SupabaseStore {
               balance_after: newAvail,
               notes: `Returned ${good} good condition units under Return ${returnNumber}`,
             });
-            if (moveErr) throw new Error(`Database error inserting inventory movement: ${moveErr.message}`);
+            if (moveErr) throw new Error(friendlyDbError("inserting inventory movement", moveErr));
           }
 
           // Inventory Movement: RETURN_DAMAGED
@@ -2966,7 +2967,7 @@ export class SupabaseStore {
               balance_after: newAvail,
               notes: `Returned ${damaged} damaged units under Return ${returnNumber}`,
             });
-            if (moveErr) throw new Error(`Database error inserting inventory movement: ${moveErr.message}`);
+            if (moveErr) throw new Error(friendlyDbError("inserting inventory movement", moveErr));
           }
 
           // Inventory Movement: RETURN_MISSING
@@ -2980,7 +2981,7 @@ export class SupabaseStore {
               balance_after: newAvail,
               notes: `${missing} units reported missing under Return ${returnNumber}`,
             });
-            if (moveErr) throw new Error(`Database error inserting inventory movement: ${moveErr.message}`);
+            if (moveErr) throw new Error(friendlyDbError("inserting inventory movement", moveErr));
           }
         }
       }
@@ -2998,7 +2999,7 @@ export class SupabaseStore {
           quantity_missing: matchingGpItem.quantity_missing,
         })
         .eq("id", matchingGpItem.id);
-      if (gpiUpdateErr) throw new Error(`Database error updating gate pass item: ${gpiUpdateErr.message}`);
+      if (gpiUpdateErr) throw new Error(friendlyDbError("updating gate pass item", gpiUpdateErr));
 
       // Handle Damage Incident on Bill
       if (damaged > 0) {
@@ -3120,7 +3121,7 @@ export class SupabaseStore {
       .from("gate_passes")
       .update({ status: newGpStatus })
       .eq("id", gatePassId);
-    if (gpUpdateErr) throw new Error(`Database error updating gate pass status: ${gpUpdateErr.message}`);
+    if (gpUpdateErr) throw new Error(friendlyDbError("updating gate pass status", gpUpdateErr));
 
     // 10. Insert Return Header Record
     const returnRecord: ReturnRecord = {
@@ -3149,12 +3150,12 @@ export class SupabaseStore {
 
     const retRow = mapReturnRecordToRow(returnRecord);
     const { error: retErr } = await this.supabase.from("returns").insert(retRow);
-    if (retErr) throw new Error(`Database error recording return: ${retErr.message}`);
+    if (retErr) throw new Error(friendlyDbError("recording return", retErr));
 
     // 11. Insert Return Items
     if (retItemRows.length > 0) {
       const { error: itemsErr } = await this.supabase.from("return_items").insert(retItemRows);
-      if (itemsErr) throw new Error(`Database error inserting return items: ${itemsErr.message}`);
+      if (itemsErr) throw new Error(friendlyDbError("inserting return items", itemsErr));
     }
 
     // 12. Update Bill Return Metrics, Status & Recalculate Financials
@@ -3245,7 +3246,7 @@ export class SupabaseStore {
       query = query.eq("bill_id", billId);
     }
     const { data, error } = await query;
-    if (error) throw new Error(`Database error fetching payments: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching payments", error));
     return (data || []).map(mapPaymentFromRow);
   }
 
@@ -3286,7 +3287,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error recording payment: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("recording payment", error));
 
     // Update bill payment balances if attached to a bill
     if (data.billId) {
@@ -3350,7 +3351,7 @@ export class SupabaseStore {
       .from("gate_passes")
       .select("*")
       .order("created_at", { ascending: false });
-    if (error) throw new Error(`Database error fetching gate passes: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching gate passes", error));
     
     const gatePasses: GatePass[] = [];
     for (const gpRow of data || []) {
@@ -3370,7 +3371,7 @@ export class SupabaseStore {
       .select("*")
       .eq("bill_id", billId)
       .order("created_at", { ascending: false });
-    if (error) throw new Error(`Database error fetching gate passes for bill ${billId}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching gate passes for bill", error));
 
     const gatePasses: GatePass[] = [];
     for (const gpRow of data || []) {
@@ -3478,7 +3479,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error creating gate pass: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("creating gate pass", error));
 
     const createdItems: GatePassItem[] = [];
     if (data.items && Array.isArray(data.items) && data.items.length > 0) {
@@ -3519,7 +3520,7 @@ export class SupabaseStore {
             .select()
             .single();
 
-          if (gpItemErr) throw new Error(`Database error inserting gate pass item: ${gpItemErr.message}`);
+          if (gpItemErr) throw new Error(friendlyDbError("inserting gate pass item", gpItemErr));
           if (gpItemRow) {
             createdItems.push(mapGatePassItemFromRow(gpItemRow));
           }
@@ -3543,7 +3544,7 @@ export class SupabaseStore {
             notes: `Dispatched ${qty} units under Gate Pass ${gatePassNumber}`,
           });
 
-          if (moveErr) throw new Error(`Database error inserting inventory movement: ${moveErr.message}`);
+          if (moveErr) throw new Error(friendlyDbError("inserting inventory movement", moveErr));
         } else {
           // Uncataloged or note line
           const { data: gpItemRow, error: gpItemErr } = await this.supabase
@@ -3562,7 +3563,7 @@ export class SupabaseStore {
             .select()
             .single();
 
-          if (gpItemErr) throw new Error(`Database error inserting gate pass item: ${gpItemErr.message}`);
+          if (gpItemErr) throw new Error(friendlyDbError("inserting gate pass item", gpItemErr));
           if (gpItemRow) {
             createdItems.push(mapGatePassItemFromRow(gpItemRow));
           }
@@ -3605,7 +3606,7 @@ export class SupabaseStore {
       .from("returns")
       .select("*")
       .order("created_at", { ascending: false });
-    if (error) throw new Error(`Database error fetching returns: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching returns", error));
     return (data || []).map(mapReturnRecordFromRow);
   }
 
@@ -3638,7 +3639,7 @@ export class SupabaseStore {
       .from("users")
       .select("*")
       .order("created_at", { ascending: true });
-    if (error) throw new Error(`Database error fetching users: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching users", error));
     return (data || []).map((row) => mapUserFromRow(row, false));
   }
 
@@ -3649,7 +3650,7 @@ export class SupabaseStore {
       .eq("id", id)
       .maybeSingle();
 
-    if (error) throw new Error(`Database error fetching user ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching user", error));
     return data ? mapUserFromRow(data, includeSensitive) : undefined;
   }
 
@@ -3660,7 +3661,7 @@ export class SupabaseStore {
       .eq("email", email.trim().toLowerCase())
       .maybeSingle();
 
-    if (error) throw new Error(`Database error fetching user by email: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching user by email", error));
     return data ? mapUserFromRow(data, includeSensitive) : undefined;
   }
 
@@ -3689,7 +3690,7 @@ export class SupabaseStore {
       data = res.data;
     }
 
-    if (error) throw new Error(`Database error fetching user ${identifier}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching user", error));
     return data ? mapUserFromRow(data, includeSensitive) : undefined;
   }
 
@@ -3764,7 +3765,7 @@ export class SupabaseStore {
       if ((error as any).code === "23505" || /duplicate key|unique/i.test(error.message)) {
         throw new Error("An account with this email or username already exists.");
       }
-      throw new Error(`Database error creating user: ${error.message}`);
+      throw new Error(friendlyDbError("creating user", error));
     }
     return mapUserFromRow(inserted, false);
   }
@@ -3784,7 +3785,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error updating user ${id}: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("updating user", error));
     return mapUserFromRow(updated, false);
   }
 
@@ -3799,7 +3800,7 @@ export class SupabaseStore {
     }
 
     const { error } = await this.supabase.from("users").delete().eq("id", id);
-    if (error) throw new Error(`Database error deleting user: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("deleting user", error));
     return true;
   }
 
@@ -3919,7 +3920,7 @@ export class SupabaseStore {
     }
 
     const { data, error } = await query;
-    if (error) throw new Error(`Database error fetching sessions: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching sessions", error));
     let sessions = (data || []).map(mapSessionFromRow);
     if (filter?.search) {
       const s = filter.search.toLowerCase();
@@ -3966,7 +3967,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error creating session: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("creating session", error));
     return mapSessionFromRow(inserted);
   }
 
@@ -3995,7 +3996,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error rejecting session: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("rejecting session", error));
     return mapSessionFromRow(data);
   }
 
@@ -4007,7 +4008,7 @@ export class SupabaseStore {
       .select()
       .maybeSingle();
 
-    if (error) throw new Error(`Database error signing out session: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("signing out session", error));
     return data ? mapSessionFromRow(data) : null;
   }
 
@@ -4041,7 +4042,7 @@ export class SupabaseStore {
 
     if (error) {
       console.error(`[SupabaseStore] Database error recording audit log: ${error.message}`, error);
-      throw new Error(`Database error recording audit log: ${error.message}`);
+      throw new Error(friendlyDbError("recording audit log", error));
     }
     return mapAuditLogFromRow(inserted);
   }
@@ -4058,7 +4059,7 @@ export class SupabaseStore {
     if (filters?.limit) query = query.limit(filters.limit);
 
     const { data, count, error } = await query;
-    if (error) throw new Error(`Database error fetching audit logs: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching audit logs", error));
 
     return {
       logs: (data || []).map(mapAuditLogFromRow),
@@ -4101,7 +4102,7 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Database error creating notification: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("creating notification", error));
     return mapNotificationFromRow(inserted);
   }
 
@@ -4117,7 +4118,7 @@ export class SupabaseStore {
       .limit(50);
 
     const { data, error } = await query;
-    if (error) throw new Error(`Database error fetching notifications: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching notifications", error));
     return (data || []).map(mapNotificationFromRow);
   }
 
@@ -4140,7 +4141,7 @@ export class SupabaseStore {
     }
 
     const { data, error } = await query;
-    if (error) throw new Error(`Database error fetching notifications: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("fetching notifications", error));
 
     const { count } = await this.supabase
       .from("activity_notifications")
@@ -4175,7 +4176,7 @@ export class SupabaseStore {
     }
 
     const { error } = await query;
-    if (error) throw new Error(`Database error marking notifications read: ${error.message}`);
+    if (error) throw new Error(friendlyDbError("marking notifications read", error));
   }
 
 

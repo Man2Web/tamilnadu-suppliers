@@ -235,7 +235,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
       async () => {
         await testStore.createBill(failingData);
       },
-      /bill_items_quantity_check|violates check constraint|Database error inserting bill items/i,
+      /Quantity cannot be negative|outside the allowed range/i,
       "Must reject with database constraint violation"
     );
 
@@ -294,7 +294,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
       async () => {
         await testStore.createBill(failingBranchData);
       },
-      /bill_branches_customer_branch_id_fkey|violates foreign key constraint|Database error inserting bill branch/i,
+      /linked record .* no longer exists|cannot be removed or changed/i,
       "Must reject with foreign key constraint violation"
     );
 
@@ -346,7 +346,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
       async () => {
         await testStore.createBill(failingPaymentData);
       },
-      /payments_payment_number_key|duplicate key value violates unique constraint|Database error recording payment/i,
+      /payment with this receipt number already exists|already exists/i,
       "Must reject with payments unique constraint violation"
     );
 
@@ -459,7 +459,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
       async () => {
         await testStore.createBill(failingAuditData);
       },
-      /audit_logs_actor_id_fkey|violates foreign key constraint|Database error recording audit log/i,
+      /linked record .* no longer exists|cannot be removed or changed/i,
       "Must reject with audit log FK constraint violation"
     );
 
@@ -621,7 +621,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
           items: [{ productId: "test:b54:prod-1", entryType: "product", itemName: "Duplicate ID Item", quantity: 1, unitPrice: 100, amount: 100 }],
         });
       },
-      /bills_pkey|duplicate key value violates unique constraint/i,
+      /bills_pkey|duplicate key value violates unique constraint|already exists/i,
       "Must reject retry with same bill ID"
     );
 
@@ -642,7 +642,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
           items: [{ productId: "test:b54:prod-1", entryType: "product", itemName: "Duplicate Number Item", quantity: 1, unitPrice: 100, amount: 100 }],
         });
       },
-      /bills_bill_number_key|duplicate key value violates unique constraint/i,
+      /bills_bill_number_key|duplicate key value violates unique constraint|already exists/i,
       "Must reject retry with same bill number"
     );
   });
