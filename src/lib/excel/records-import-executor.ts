@@ -131,10 +131,13 @@ export async function executeImport(store: Store, preview: RecordsPreview, actor
             actor,
           });
         }
-        // Historical records must not look like live rentals on the dashboard: fully paid bills are closed,
-        // the rest wait for settlement. Stock, gate passes and returns are never touched.
-        const balance = Math.max(0, Math.round((bill.grandTotal - validPayments.reduce((a, p) => a + p.amount, 0)) * 100) / 100);
-        await tx.updateBill(bill.id, { status: balance === 0 ? "CLOSED" : "PENDING_SETTLEMENT" } as never);
+        // Fully paid historical bills are closed so they do not show up as live rentals. A bill with a balance stays
+        // open on purpose: it is a genuine receivable and belongs under "bills awaiting payment". Stock, gate passes
+        // and returns are never touched.
+        const paid = Math.round(validPayments.reduce((x, p) => x + p.amount, 0) * 100) / 100;
+        if (bill.grandTotal - paid <= 0) {
+          await tx.updateBill(bill.id, { status: "CLOSED" } as never);
+        }
         return bill;
       });
       result.billsCreated++;

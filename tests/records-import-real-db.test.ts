@@ -122,7 +122,7 @@ describe("Excel import of older records on real PostgreSQL", { skip: !testDb.isC
     assert.equal(Number(bill.balance_due), 60);
     assert.equal(bill.payment_status, "PARTIALLY_PAID");
     const st = (await pool.query(`SELECT status FROM public.bills WHERE bill_number = $1`, [`${P}0001`])).rows[0].status;
-    assert.ok(["PENDING_SETTLEMENT", "ISSUED"].includes(st), `imported unpaid bill must not look like a live rental, got ${st}`);
+    assert.equal(st, "ISSUED", "an imported bill with a balance stays open as a receivable");
 
     const items = (await pool.query(
       `SELECT item_name, product_id, entry_type, quantity, days, unit_price, amount FROM public.bill_items i
@@ -145,6 +145,23 @@ describe("Excel import of older records on real PostgreSQL", { skip: !testDb.isC
 
     const movementsAfter = (await pool.query(`SELECT count(*)::int AS n FROM public.inventory_movements`)).rows[0].n;
     assert.equal(movementsAfter, movementsBefore, "importing historical bills must not create stock movements");
+  });
+
+  it("a fully paid imported bill is closed and keeps its derived rental end date", async () => {
+    const buf = book({
+      Bills: [
+        [...HEADER, "Amount Paid"],
+        [`${P}0003`, "10/02/2025", `${P}Ravi Traders`, "9500000002", "Spoon", 10, 3, 10, 0, 354],
+      ],
+    });
+    const preview = parseRecordsWorkbook(buf, await context());
+    const result = await executeImport(store as never, preview, undefined);
+    assert.deepEqual(result.failures, []);
+    const row = (await pool.query(`SELECT status, balance_due, rental_start_date::text AS s, rental_end_date::text AS e FROM public.bills WHERE bill_number = $1`, [`${P}0003`])).rows[0];
+    assert.equal(row.status, "PAID"); // the app stores CLOSED as PAID
+    assert.equal(Number(row.balance_due), 0);
+    assert.equal(row.s, "2025-02-10");
+    assert.equal(row.e, "2025-02-12");
   });
 
   it("running the same file again changes nothing (bills and customers are skipped)", async () => {
