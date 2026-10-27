@@ -183,3 +183,18 @@ describe("file level behaviour", () => {
     assert.equal(p.bills.length + p.customers.length + p.products.length + p.orphanPayments.length, 0);
   });
 });
+
+describe("rental dates", () => {
+  it("derives the end date from the number of days when the sheet has none", () => {
+    const buf = book({
+      Bills: [
+        ["Bill Number", "Bill Date", "Customer Name", "Customer Mobile", "Item Name", "Quantity", "Days", "Unit Price"],
+        ["D-1", "15/03/2025", "Cust", "9111111111", "Steel Plate", 1, 3, 10],
+      ],
+    });
+    const b = parseRecordsWorkbook(buf, ctx).bills[0];
+    assert.equal(b.rentalStartDate, "2025-03-15");
+    assert.equal(b.rentalEndDate, "2025-03-17");
+    assert.equal(b.rentalDays, 3);
+  });
+});

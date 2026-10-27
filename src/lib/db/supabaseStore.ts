@@ -205,6 +205,11 @@ export class SupabaseStore {
     const newCompany: Company = {
       ...data,
       id,
+      address: data.address || "123 Main Street, Tamil Nadu",
+      bankName: data.bankName || "City Union Bank",
+      bankAccountNo: data.bankAccountNo || "510909010078513",
+      bankIfsc: data.bankIfsc || "CIUB0000065",
+      bankBranch: data.bankBranch || "Vellore Branch",
       invoicePrefix: data.invoicePrefix || `${code}${randSuffix}-`,
       quotationPrefix: data.quotationPrefix || `${code}${randSuffix}Q-`,
       gatePassPrefix: data.gatePassPrefix || `${code}${randSuffix}GP-`,

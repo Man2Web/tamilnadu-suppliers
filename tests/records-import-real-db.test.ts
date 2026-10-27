@@ -121,6 +121,8 @@ describe("Excel import of older records on real PostgreSQL", { skip: !testDb.isC
     assert.equal(Number(bill.advance_paid) + Number(bill.amount_paid), 200);
     assert.equal(Number(bill.balance_due), 60);
     assert.equal(bill.payment_status, "PARTIALLY_PAID");
+    const st = (await pool.query(`SELECT status FROM public.bills WHERE bill_number = $1`, [`${P}0001`])).rows[0].status;
+    assert.ok(["PENDING_SETTLEMENT", "ISSUED"].includes(st), `imported unpaid bill must not look like a live rental, got ${st}`);
 
     const items = (await pool.query(
       `SELECT item_name, product_id, entry_type, quantity, days, unit_price, amount FROM public.bill_items i

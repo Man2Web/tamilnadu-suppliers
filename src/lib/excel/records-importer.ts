@@ -164,6 +164,12 @@ export function parseInteger(v: unknown): number | null {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
+function addDays(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+}
+
 function validYmd(y: number, m: number, d: number): string | null {
   if (y < 1990 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return null;
   const dt = new Date(Date.UTC(y, m - 1, d));
@@ -443,7 +449,9 @@ function parseBills(
     const rs = parseDateCell(header(["rental start date", "rental start", "from date", "start date"]));
     const re = parseDateCell(header(["rental end date", "rental end", "to date", "end date"]));
     const rentalStartDate = rs || billDate || "";
-    const rentalEndDate = re || rentalStartDate;
+    const daysGiven = parseInteger(header(["rental days", "days"]));
+    // No end date in the sheet: derive it from the number of days instead of assuming a one-day rental
+    const rentalEndDate = re || (rentalStartDate ? addDays(rentalStartDate, Math.max(1, daysGiven || 1) - 1) : "");
     if (rentalStartDate && rentalEndDate && rentalEndDate < rentalStartDate) {
       errors.push("Rental end date is before the rental start date.");
     }

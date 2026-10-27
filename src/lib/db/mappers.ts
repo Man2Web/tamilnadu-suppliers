@@ -77,11 +77,8 @@ export function mapCompanyToRow(company: Partial<Company>): Record<string, any> 
   if (company.pan !== undefined) row.pan = company.pan;
   if (company.email !== undefined) row.email = company.email;
   if (company.phone !== undefined) row.phone = company.phone;
-  row.address = company.address || "123 Main Street, Tamil Nadu";
-  row.bank_name = company.bankName || "City Union Bank";
-  row.bank_account_no = company.bankAccountNo || "510909010078513";
-  row.bank_ifsc = company.bankIfsc || "CIUB0000065";
-  row.bank_branch = company.bankBranch || "Vellore Branch";
+  // No defaults here: this mapper also serves partial updates (for example the invoice counter bump on every
+  // new bill). Placeholder values for a brand-new company are applied once in createCompany.
   if (company.address !== undefined) row.address = company.address;
   if (company.state !== undefined) row.state = company.state;
   if (company.stateCode !== undefined) row.state_code = company.stateCode;

@@ -15,6 +15,9 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { documentType, documentId, phone, appUrl } = body;
+    if (typeof phone !== "string" || phone.replace(/\D/g, "").length < 7) {
+      return NextResponse.json({ error: "A valid recipient phone number is required." }, { status: 400 });
+    }
 
     let message = "";
     let docNumber = "";
