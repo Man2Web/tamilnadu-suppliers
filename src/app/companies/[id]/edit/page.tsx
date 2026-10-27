@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Company, GstType } from "@/lib/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { isGstRegistered } from "@/lib/calculations/financial";
 
 export default function EditCompanyPage({
   params,
@@ -59,7 +60,7 @@ export default function EditCompanyPage({
       setError("Company legal name and display name are required.");
       return;
     }
-    if (company.gstType === "GST_REGISTERED" && !company.gstin) {
+    if (isGstRegistered(company.gstType) && !company.gstin) {
       setError("GSTIN is required for GST Registered entities.");
       return;
     }
@@ -211,7 +212,7 @@ export default function EditCompanyPage({
             <div>
               <label className="block text-slate-700 font-semibold mb-1">GST Registration Status *</label>
               <select
-                value={company.gstType || "GST_REGISTERED"}
+                value={!company.gstType || isGstRegistered(company.gstType) ? "GST_REGISTERED" : "NON_GST"}
                 onChange={(e) => handleChange("gstType", e.target.value as GstType)}
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
@@ -222,11 +223,11 @@ export default function EditCompanyPage({
 
             <div>
               <label className="block text-slate-700 font-semibold mb-1">
-                GSTIN {company.gstType === "GST_REGISTERED" && <span className="text-rose-600">*</span>}
+                GSTIN {isGstRegistered(company.gstType) && <span className="text-rose-600">*</span>}
               </label>
               <input
                 type="text"
-                required={company.gstType === "GST_REGISTERED"}
+                required={isGstRegistered(company.gstType)}
                 value={company.gstin || ""}
                 onChange={(e) => handleChange("gstin", e.target.value.toUpperCase())}
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 font-mono uppercase text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"

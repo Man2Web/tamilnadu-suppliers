@@ -116,4 +116,36 @@ describe("Accounts and same-day rentals on real PostgreSQL", { skip: !testDb.isC
     assert.equal(brow.rental_days, 1);
     assert.equal(Number(brow.grand_total), 236); // 200 + 18% GST
   });
+
+  it("editing a quotation recalculates subtotal, tax and grand total on the server; reversed dates are rejected", async () => {
+    const line = { productId: `${P}prod`, itemName: `${P}Chair`, sizeSpec: "std", quantity: 10, days: 1, unitPrice: 20, amount: 200 };
+    const quote = await store.createQuotation({
+      companyId: COMPANY_ID, customerName: `${P}Cust`, customerPhone: "9000000056", customerAddress: "x",
+      rentalStartDate: "2026-11-05", rentalEndDate: "2026-11-06", items: [line], documentLines: [line],
+    });
+    const read = async () =>
+      (await pool.query(`SELECT subtotal, total_tax, grand_total, rental_days FROM public.quotations WHERE id = $1`, [quote.id])).rows[0];
+    assert.equal(Number((await read()).grand_total), 236);
+
+    // The page sends lines only (never totals): 20 chairs x 2 days x 20 = 800 -> 800 + 18% = 944
+    const edited = { ...line, quantity: 20, days: 2, amount: 800 };
+    await store.updateQuotation(quote.id, { items: [edited], documentLines: [edited], rentalDays: 2 } as never);
+    let row = await read();
+    assert.equal(Number(row.subtotal), 800);
+    assert.equal(Number(row.total_tax), 144);
+    assert.equal(Number(row.grand_total), 944);
+    assert.equal(row.rental_days, 2);
+
+    // Changing only a charge also recalculates: (800 + 100) x 1.18 = 1062
+    await store.updateQuotation(quote.id, { transportCharges: 100 } as never);
+    row = await read();
+    assert.equal(Number(row.grand_total), 1062);
+
+    // A reversed date range is refused and nothing changes
+    await assert.rejects(
+      store.updateQuotation(quote.id, { rentalStartDate: "2026-11-09", rentalEndDate: "2026-11-01" } as never),
+      /cannot be before the rental start date/
+    );
+    assert.equal(Number((await read()).grand_total), 1062);
+  });
 });

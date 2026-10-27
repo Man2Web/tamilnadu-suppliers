@@ -37,7 +37,7 @@ export function classifyLoginFailure(err: unknown): ClassifiedFailure {
       code: "RATE_LIMIT_UNAVAILABLE",
       clientMessage: "Sign-in is temporarily unavailable. Please try again shortly.",
       logDetail: keyRejected
-        ? `Supabase rejected the server API key for the rate-limit RPC. Check SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL belong to the same project (run scripts/check-env.mjs). ${sanitize(err.message)}`
+        ? `The database rejected the server API key for the rate-limit RPC. Check SUPABASE_SERVICE_ROLE_KEY and NEXT_PUBLIC_SUPABASE_URL belong to the same project (run scripts/check-env.mjs). ${sanitize(err.message)}`
         : missing
         ? `rate-limit table/RPC not found. Apply migration 20261023_login_rate_limits.sql. ${sanitize(err.message)}`
         : sanitize(err.message),
@@ -53,7 +53,7 @@ export function classifyLoginFailure(err: unknown): ClassifiedFailure {
     };
   }
 
-  if (/^Supabase error|invalid api key|fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|JWT/i.test(message)) {
+  if (/^(Supabase|Database) error|invalid api key|fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|JWT/i.test(message)) {
     return {
       status: 503,
       code: "AUTH_BACKEND_UNAVAILABLE",

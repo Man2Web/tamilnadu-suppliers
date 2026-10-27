@@ -18,6 +18,7 @@ import {
   calculateRentalDays,
   getRentalDateError,
   calculateDocumentFinancials,
+  isGstRegistered,
   formatINR,
 } from "@/lib/calculations/financial";
 import { generateUuid } from "@/lib/utils/uuid";
@@ -395,11 +396,11 @@ export default function CreateBillPage() {
             </span>
             {selectedCompany && (
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                selectedCompany.gstType === "GST_REGISTERED"
+                isGstRegistered(selectedCompany.gstType)
                   ? "bg-purple-50 text-purple-700 border-purple-200"
                   : "bg-amber-50 text-amber-800 border-amber-200"
               }`}>
-                {selectedCompany.gstType === "GST_REGISTERED" ? "GST Registered (18%)" : "Non-GST Rental"}
+                {isGstRegistered(selectedCompany.gstType) ? "GST Registered (18%)" : "Non-GST Rental"}
               </span>
             )}
           </div>
@@ -417,7 +418,7 @@ export default function CreateBillPage() {
               >
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.displayName || c.name} ({c.gstType})
+                    {c.displayName || c.name} ({isGstRegistered(c.gstType) ? "GST" : "Non-GST"})
                   </option>
                 ))}
               </select>
@@ -904,7 +905,7 @@ export default function CreateBillPage() {
                 </div>
               )}
 
-              {selectedCompany?.gstType === "GST_REGISTERED" && (
+              {isGstRegistered(selectedCompany?.gstType) && (
                 <>
                   <div className="flex justify-between text-slate-600 pt-1 border-t border-slate-200">
                     <span>Taxable Value:</span>

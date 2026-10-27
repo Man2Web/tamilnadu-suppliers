@@ -7,7 +7,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Bill, Quotation, GatePass } from "../types";
-import { formatINR, numberToIndianWords } from "../calculations/financial";
+import { formatINR, numberToIndianWords, isGstRegistered } from "../calculations/financial";
 
 /**
  * Generates Rental Bill / Invoice PDF matching 742 MATCON - 2026.pdf
@@ -25,7 +25,7 @@ export function generateBillPDF(bill: Bill): jsPDF {
   const contentWidth = pageWidth - 2 * margin;
 
   const comp = bill.companySnapshot || {};
-  const isGst = bill.taxType === "GST_REGISTERED";
+  const isGst = isGstRegistered(bill.taxType);
 
   // Outer border
   doc.setDrawColor(60, 60, 60);

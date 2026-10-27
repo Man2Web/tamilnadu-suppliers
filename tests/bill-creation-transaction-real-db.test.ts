@@ -235,7 +235,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
       async () => {
         await testStore.createBill(failingData);
       },
-      /bill_items_quantity_check|violates check constraint|Supabase error inserting bill items/i,
+      /bill_items_quantity_check|violates check constraint|Database error inserting bill items/i,
       "Must reject with database constraint violation"
     );
 
@@ -294,7 +294,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
       async () => {
         await testStore.createBill(failingBranchData);
       },
-      /bill_branches_customer_branch_id_fkey|violates foreign key constraint|Supabase error inserting bill branch/i,
+      /bill_branches_customer_branch_id_fkey|violates foreign key constraint|Database error inserting bill branch/i,
       "Must reject with foreign key constraint violation"
     );
 
@@ -346,7 +346,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
       async () => {
         await testStore.createBill(failingPaymentData);
       },
-      /payments_payment_number_key|duplicate key value violates unique constraint|Supabase error recording payment/i,
+      /payments_payment_number_key|duplicate key value violates unique constraint|Database error recording payment/i,
       "Must reject with payments unique constraint violation"
     );
 
@@ -459,7 +459,7 @@ describe("Batch 5.4 — Atomic Bill Creation in PostgreSQL Mode", { skip: !testD
       async () => {
         await testStore.createBill(failingAuditData);
       },
-      /audit_logs_actor_id_fkey|violates foreign key constraint|Supabase error recording audit log/i,
+      /audit_logs_actor_id_fkey|violates foreign key constraint|Database error recording audit log/i,
       "Must reject with audit log FK constraint violation"
     );
 

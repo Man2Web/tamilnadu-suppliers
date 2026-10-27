@@ -407,7 +407,7 @@ export default function AccountManagementPage() {
                   <td colSpan={9} className="py-12 text-center">
                     <div className="flex flex-col items-center justify-center space-y-2">
                       <RotateCw className="w-6 h-6 text-blue-600 animate-spin" />
-                      <span className="text-xs text-slate-500 font-medium">Loading user accounts from Supabase...</span>
+                      <span className="text-xs text-slate-500 font-medium">Loading user accounts...</span>
                     </div>
                   </td>
                 </tr>

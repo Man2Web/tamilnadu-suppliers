@@ -133,6 +133,15 @@ export function formatINR(amount: number): string {
 /**
  * Calculates complete document financial breakdown
  */
+/**
+ * The backend reports a GST company as "GST" while forms and older code use "GST_REGISTERED".
+ * Always test with this helper; comparing against one spelling treats GST companies as Non-GST (wrong labels,
+ * missing CGST/SGST lines on PDFs).
+ */
+export function isGstRegistered(type?: string | null): boolean {
+  return type === "GST" || type === "GST_REGISTERED";
+}
+
 export function calculateDocumentFinancials(
   input: DocumentFinancialInput
 ): DocumentFinancialSummary {
@@ -159,7 +168,7 @@ export function calculateDocumentFinancials(
   let igstAmount = 0;
   let totalTax = 0;
 
-  if (input.taxType === "GST_REGISTERED" || (input.taxType as string) === "GST") {
+  if (isGstRegistered(input.taxType)) {
     const totalGstRate = input.gstRatePercent !== undefined ? input.gstRatePercent : 18;
     if (input.isInterState) {
       igstRate = totalGstRate;

@@ -198,7 +198,8 @@ describe("Batch 5.3B — Stage 3: Real PostgreSQL Quotation Revision Transaction
 
     assert.equal(updated.id, QUOTE_ID);
     assert.equal(Number(updated.rentalDays), 5);
-    assert.equal(Number(updated.grandTotal), 2500.0);
+    // Totals are derived on the server from the lines: 2500 subtotal + 18% GST (GST-registered fixture company)
+    assert.equal(Number(updated.grandTotal), 2950.0);
 
     // Verify database state directly via separate client
     const itemsRes = await appPool.query(
@@ -227,7 +228,7 @@ describe("Batch 5.3B — Stage 3: Real PostgreSQL Quotation Revision Transaction
   });
 
   it("2. rolls back atomically when line-item insertion fails (preserves existing lines and header)", async () => {
-    // Current database state has 2 items: "Revised Product One" and "Revised Product Two", grandTotal = 2500
+    // Current database state has 2 items: "Revised Product One" and "Revised Product Two", grandTotal = 2950 (2500 + 18% GST)
     const beforeItems = await appPool.query(
       `SELECT id, item_name, quantity, amount FROM public.quotation_items WHERE quotation_id = $1 ORDER BY position`,
       [QUOTE_ID]
@@ -238,7 +239,7 @@ describe("Batch 5.3B — Stage 3: Real PostgreSQL Quotation Revision Transaction
       `SELECT grand_total, rental_days FROM public.quotations WHERE id = $1`,
       [QUOTE_ID]
     );
-    assert.equal(Number(beforeQuote.rows[0].grand_total), 2500.0);
+    assert.equal(Number(beforeQuote.rows[0].grand_total), 2950.0);
     assert.equal(beforeQuote.rows[0].rental_days, 5);
 
     // Attempt quotation update with an item that deliberately violates PostgreSQL CHECK constraint
@@ -309,7 +310,7 @@ describe("Batch 5.3B — Stage 3: Real PostgreSQL Quotation Revision Transaction
       `SELECT grand_total, rental_days FROM public.quotations WHERE id = $1`,
       [QUOTE_ID]
     );
-    assert.equal(Number(afterQuote.rows[0].grand_total), 2500.0, "Grand total must not be modified");
+    assert.equal(Number(afterQuote.rows[0].grand_total), 2950.0, "Grand total must not be modified");
     assert.equal(afterQuote.rows[0].rental_days, 5, "Rental days must not be modified");
   });
 

@@ -35,6 +35,7 @@ import { Quotation, Product, Company, Customer, QuotationItem } from "@/lib/type
 import {
   calculateRentalDays,
   calculateDocumentFinancials,
+  isGstRegistered,
   formatINR,
   numberToIndianWords,
 } from "@/lib/calculations/financial";
@@ -706,7 +707,7 @@ export default function QuotationDetailPage({
     );
   }
 
-  const isGst = quotation.taxType === "GST_REGISTERED";
+  const isGst = isGstRegistered(quotation.taxType);
   const comp = quotation.companySnapshot || {};
 
   return (

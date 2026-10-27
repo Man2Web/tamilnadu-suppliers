@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Company } from "@/lib/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { isGstRegistered } from "@/lib/calculations/financial";
 
 export default function CompaniesPage() {
   const { currentUser, isSuperAdmin, hasPermission, fetchWithAuth } = useAuth();
@@ -177,7 +178,7 @@ export default function CompaniesPage() {
               className={`bg-white rounded-xl p-5 border shadow-xs space-y-4 transition ${
                 c.isActive ? "border-slate-200" : "border-slate-200 bg-slate-50/50 opacity-75"
               } border-t-4 ${
-                c.gstType === "GST_REGISTERED" ? "border-t-emerald-600" : "border-t-amber-500"
+                isGstRegistered(c.gstType) ? "border-t-emerald-600" : "border-t-amber-500"
               }`}
             >
               <div className="flex items-start justify-between">
@@ -186,12 +187,12 @@ export default function CompaniesPage() {
                     <h2 className="text-base font-bold text-slate-900">{c.displayName}</h2>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        c.gstType === "GST_REGISTERED"
+                        isGstRegistered(c.gstType)
                           ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                           : "bg-amber-50 text-amber-700 border border-amber-200"
                       }`}
                     >
-                      {c.gstType === "GST_REGISTERED" ? "GST Registered" : "Non-GST"}
+                      {isGstRegistered(c.gstType) ? "GST Registered" : "Non-GST"}
                     </span>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -246,10 +247,10 @@ export default function CompaniesPage() {
                 <div className="flex justify-between">
                   <span className="text-slate-500 font-medium">GST Registration:</span>
                   <span className="font-semibold text-slate-900">
-                    {c.gstType === "GST_REGISTERED" ? "GST Registered (18% Tax Rate)" : "Non-GST Registered"}
+                    {isGstRegistered(c.gstType) ? "GST Registered (18% Tax Rate)" : "Non-GST Registered"}
                   </span>
                 </div>
-                {c.gstType === "GST_REGISTERED" && (
+                {isGstRegistered(c.gstType) && (
                   <div className="flex justify-between">
                     <span className="text-slate-500 font-medium">GSTIN:</span>
                     <span className="font-mono text-slate-900 font-semibold">{c.gstin || "Not specified"}</span>

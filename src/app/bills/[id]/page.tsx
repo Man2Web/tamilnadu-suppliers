@@ -559,7 +559,7 @@ export default function BillWorkspacePage({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Save failed (${res.status})`);
 
-      // Persisted confirmed in Supabase
+      // Persisted and confirmed
       lastSavedPayloadRef.current = payloadStr;
       retryCountRef.current = 0;
       setAutoSaveError(null);
