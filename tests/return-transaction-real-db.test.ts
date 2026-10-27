@@ -1488,22 +1488,27 @@ describe("Batch 5.7 — Atomic Return Recording in PostgreSQL Mode", { skip: !te
       items: [{ productId: PROD_1_ID, itemName: "Heavy Scaffolding Pipe 3m", qty: 10 }],
     });
 
-    // 10a. saveBillWorkspaceChanges attempting to alter physical return stock on dispatched bill is rejected
-    await assert.rejects(
-      async () => {
-        await testStore.saveBillWorkspaceChanges(billId, {
-          items: [
-            {
-              id: `${billId}:item-1`,
-              productId: PROD_1_ID,
-              quantity: 10,
-              quantityDamaged: 2, // Causes deltaDamaged = 2, deltaGood = 8
-            },
-          ],
-        });
-      },
-      /Cannot alter physical return stock via workspace changes for dispatched Bill/
+    // 10a. saveBillWorkspaceChanges cannot alter physical return stock on a dispatched bill: the quantity fields are
+    // ignored (the recorded gate pass quantities win) so the page's autosave never errors and never moves stock.
+    await testStore.saveBillWorkspaceChanges(billId, {
+      items: [
+        {
+          id: `${billId}:item-1`,
+          productId: PROD_1_ID,
+          quantity: 10,
+          quantityDamaged: 2, // would have meant deltaDamaged = 2, deltaGood = 8
+        },
+      ],
+    });
+    const afterWorkspace = await testStore.getBill(billId);
+    assert.equal(Number(afterWorkspace?.totalDamaged || 0), 0, "ignored quantity must not create a damaged total");
+    assert.equal((afterWorkspace?.incidents || []).length, 0, "ignored quantity must not create an incident");
+    const gpiAfter = await appPool.query(
+      `SELECT quantity_returned, quantity_damaged FROM public.gate_pass_items WHERE gate_pass_id = $1`,
+      [gpId]
     );
+    assert.equal(Number(gpiAfter.rows[0].quantity_returned), 0);
+    assert.equal(Number(gpiAfter.rows[0].quantity_damaged), 0);
 
     // Verify stock unchanged
     const prodRes = await appPool.query(

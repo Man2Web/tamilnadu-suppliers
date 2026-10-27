@@ -2048,6 +2048,27 @@ export class SupabaseStore {
         if (pl.productId) prevLinesMap.set(`prod-${pl.productId}`, pl);
       }
 
+      // Once goods have left on a gate pass, physical return quantities are owned by the formal return recording
+      // (gate pass items). This workspace save then only applies decisions, charges and notes, using the recorded
+      // quantities, and never moves stock.
+      const { data: billGatePasses } = await this.supabase.from("gate_passes").select("id").eq("bill_id", billId);
+      const dispatchedBill = Boolean(billGatePasses && billGatePasses.length > 0);
+      const recordedByProduct = new Map<string, { good: number; damaged: number; missing: number }>();
+      if (dispatchedBill) {
+        const { data: gpItemRows } = await this.supabase
+          .from("gate_pass_items")
+          .select("product_id, quantity_returned, quantity_damaged, quantity_missing")
+          .in("gate_pass_id", (billGatePasses as any[]).map((g) => g.id));
+        for (const r of gpItemRows || []) {
+          if (!r.product_id) continue;
+          const cur = recordedByProduct.get(r.product_id) || { good: 0, damaged: 0, missing: 0 };
+          cur.good += Number(r.quantity_returned || 0);
+          cur.damaged += Number(r.quantity_damaged || 0);
+          cur.missing += Number(r.quantity_missing || 0);
+          recordedByProduct.set(r.product_id, cur);
+        }
+      }
+
       let totalGood = 0;
       let totalDamaged = 0;
       let totalMissing = 0;
@@ -2082,8 +2103,15 @@ export class SupabaseStore {
 
         // Formula: Returned Good = Dispatched Quantity − Damaged Quantity − Missing Quantity
         // Use the same calculation on the server as a validation rule. Never trust a client-submitted Returned Good value.
-        const returnedGood = Math.max(0, dispatched - damaged - missing);
-        const physicalReturned = returnedGood + damaged;
+        let returnedGood = Math.max(0, dispatched - damaged - missing);
+        let physicalReturned = returnedGood + damaged;
+        if (dispatchedBill && raw.productId) {
+          const rec = recordedByProduct.get(raw.productId) || { good: 0, damaged: 0, missing: 0 };
+          damaged = rec.damaged;
+          missing = rec.missing;
+          returnedGood = rec.good;
+          physicalReturned = rec.good + rec.damaged;
+        }
 
         totalGood += returnedGood;
         totalDamaged += damaged;
@@ -2145,7 +2173,7 @@ export class SupabaseStore {
         // Idempotent delta stock restoration:
         // Ensure stock is restored only for usable returned goods. Damaged goods must not be added to usable stock, and missing goods must not be restored to stock.
         // Prevent repeated submissions from restoring stock or applying damage/missing charges twice.
-        if (raw.productId) {
+        if (raw.productId && !dispatchedBill) {
           const prevLine = prevLinesMap.get(raw.id) || prevLinesMap.get(`prod-${raw.productId}`);
           const prevGood =
             prevLine && prevLine.quantityReturnedGood !== undefined

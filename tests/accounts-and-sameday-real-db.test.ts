@@ -168,4 +168,51 @@ describe("Accounts and same-day rentals on real PostgreSQL", { skip: !testDb.isC
       `SELECT entry_type, quantity FROM public.quotation_items WHERE quotation_id = $1 ORDER BY position`, [quote.id])).rows;
     assert.deepEqual(qrows.map((r) => [r.entry_type, r.quantity]), [["product", 10], ["note", 0]]);
   });
+
+  it("page flow after dispatch: Record Return, then the page's autosave decides the damage charge without errors or stock changes", async () => {
+    const actor = { id: "system", name: "Test", role: "SUPER_ADMIN" };
+    const line = { productId: `${P}prod`, itemName: `${P}Chair`, sizeSpec: "std", quantity: 10, days: 1, unitPrice: 20, amount: 200 };
+    const bill = await store.createBill({
+      companyId: COMPANY_ID, customerName: `${P}Cust`, customerPhone: "9000000058", customerAddress: "x",
+      rentalStartDate: "2026-11-05", rentalEndDate: "2026-11-06", items: [line], documentLines: [line], actor,
+    });
+    await store.createGatePass({
+      companyId: COMPANY_ID, customerId: bill.customerId, customerName: bill.customerName,
+      destinationBranch: "Main", destinationAddress: "x", billId: bill.id, expectedReturnDate: bill.expectedReturnDate,
+      items: [{ productId: line.productId, itemName: line.itemName, sizeSpec: "std", quantityDispatched: 10 }], actor,
+    });
+    const gp = (await store.getGatePassesByBillId(bill.id))[0];
+    const gpItem = gp.items[0];
+    const stock = async () => (await pool.query(`SELECT available_quantity, rented_quantity, damaged_quantity FROM public.products WHERE id = $1`, [line.productId])).rows[0];
+    const before = await stock();
+
+    // What the new Record Return button sends
+    await store.recordBillReturn(bill.id, {
+      gatePassId: gp.id, returnDate: "2026-11-06",
+      items: [{ gatePassItemId: gpItem.id, productId: line.productId, itemName: line.itemName, goodQuantity: 8, damagedQuantity: 2, missingQuantity: 0 }],
+    }, actor);
+    const afterReturn = await stock();
+    assert.equal(afterReturn.available_quantity, before.available_quantity + 8);
+    assert.equal(afterReturn.damaged_quantity, before.damaged_quantity + 2);
+    assert.equal((await store.getBill(bill.id))?.status, "RETURN_INSPECTION");
+
+    // What the page's autosave then sends: its own (formula) quantities plus the decision and amount
+    const current = await store.getBill(bill.id);
+    const pageLines = (current!.documentLines || []).map((l: any) => ({
+      ...l, quantityDamaged: 2, quantityMissing: 0, damageChargeDecision: "ADD_CHARGE", damageChargeAmount: 100,
+    }));
+    await store.saveBillWorkspaceChanges(bill.id, { items: pageLines, documentLines: pageLines, actualReturnDate: "2026-11-06" } as never);
+
+    const done = await store.getBill(bill.id);
+    assert.equal(done?.status, "PENDING_SETTLEMENT");
+    assert.equal(Number(done?.approvedDamageCharges), 100);
+    assert.deepEqual((done?.incidents || []).map((i: any) => [i.type, i.chargeApprovalStatus, i.finalApprovedCharge]), [["DAMAGED", "ADD_CHARGE", 100]]);
+    assert.equal(Number(done?.totalReturnedGood), 8);
+    assert.equal(Number(done?.totalDamaged), 2);
+    const afterSave = await stock();
+    assert.deepEqual(afterSave, afterReturn, "the page save must not move stock");
+    const moves = (await pool.query(
+      `SELECT movement_type FROM public.inventory_movements WHERE product_id = $1 AND notes LIKE $2`, [line.productId, `%${bill.billNumber}%`])).rows.map((r) => r.movement_type);
+    assert.ok(!moves.some((m) => m === "RETURN_GOOD" && moves.filter((x) => x === "RETURN_GOOD").length > 1), "no duplicate good-return movement from the page save");
+  });
 });
