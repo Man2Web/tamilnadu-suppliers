@@ -16,6 +16,8 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
-COPY package.json next.config.ts ./
+COPY package.json next.config.ts tsconfig.json ./
+COPY --from=build /app/scripts ./scripts
+COPY --from=build /app/src ./src
 EXPOSE 3000
 CMD ["npx", "next", "start", "-H", "0.0.0.0", "-p", "3000"]
