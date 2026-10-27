@@ -88,6 +88,18 @@ export function parseDateOnly(dateStr: string): Date | null {
  * 12-10-2026 to 13-10-2026 = 1 day.
  * Same date = 0 elapsed days.
  */
+/**
+ * Returns a message when the rental end date is before the start date (null when the dates are fine or incomplete).
+ * Shared by the create pages and the server so a rental can never end before it starts.
+ */
+export function getRentalDateError(startDateStr?: string | null, endDateStr?: string | null): string | null {
+  if (!startDateStr || !endDateStr) return null;
+  const start = parseDateOnly(startDateStr);
+  const end = parseDateOnly(endDateStr);
+  if (!start || !end) return null;
+  return end.getTime() < start.getTime() ? "Rental end date cannot be before the rental start date." : null;
+}
+
 export function calculateRentalDays(startDateStr: string, endDateStr: string): number {
   if (!startDateStr || !endDateStr) return 0;
   const start = parseDateOnly(startDateStr);

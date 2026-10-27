@@ -66,6 +66,7 @@ import {
 import {
   calculateDocumentFinancials,
   calculateRentalDays,
+  getRentalDateError,
   calculateOverdueDetails,
   calculateFinalSettlement,
   numberToIndianWords,
@@ -669,6 +670,8 @@ export class SupabaseStore {
   async createQuotation(data: any): Promise<Quotation> {
     const company = await this.getCompany(data.companyId);
     if (!company) throw new Error("Issuing company required");
+    const dateError = getRentalDateError(data.rentalStartDate, data.rentalEndDate);
+    if (dateError) throw new Error(dateError); // checked before a quotation number is allocated
 
     const quotationNumber = await this.getNextDocumentNumber(data.companyId, "QUOTATION");
     const quoteId = toValidUuid(data.id);
@@ -980,6 +983,12 @@ export class SupabaseStore {
     if (existing.status === "CONVERTED" || existing.convertedBillId) {
       throw new Error("Quotation is converted to a bill and locked against further edits.");
     }
+
+    const dateError = getRentalDateError(
+      updates.rentalStartDate ?? existing.rentalStartDate,
+      updates.rentalEndDate ?? existing.rentalEndDate
+    );
+    if (dateError) throw new Error(dateError);
 
     const lines = updates.documentLines || updates.items;
     if (Array.isArray(lines)) {
@@ -1457,6 +1466,8 @@ export class SupabaseStore {
   private async executeCreateBill(data: any): Promise<Bill> {
     const company = await this.getCompany(data.companyId, { forUpdate: Boolean(this.executorOverride) });
     if (!company) throw new Error("Issuing company required");
+    const dateError = getRentalDateError(data.rentalStartDate, data.rentalEndDate);
+    if (dateError) throw new Error(dateError); // checked before a bill number is allocated
 
     const billNumber = data.billNumber || (await this.getNextDocumentNumber(data.companyId, "INVOICE"));
     const billId = toValidUuid(data.id);

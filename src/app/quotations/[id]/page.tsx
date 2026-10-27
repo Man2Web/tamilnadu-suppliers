@@ -311,7 +311,7 @@ export default function QuotationDetailPage({
   const handleStartDateChange = (val: string) => {
     setRentalStartDate(val);
     if (val && rentalEndDate) {
-      const days = calculateRentalDays(val, rentalEndDate);
+      const days = Math.max(1, calculateRentalDays(val, rentalEndDate)); // a same-day rental is billed as 1 day
       setRentalDays(days);
       setLines((prev) =>
         prev.map((l) =>
@@ -331,7 +331,7 @@ export default function QuotationDetailPage({
   const handleEndDateChange = (val: string) => {
     setRentalEndDate(val);
     if (rentalStartDate && val) {
-      const days = calculateRentalDays(rentalStartDate, val);
+      const days = Math.max(1, calculateRentalDays(rentalStartDate, val)); // a same-day rental is billed as 1 day
       setRentalDays(days);
       setLines((prev) =>
         prev.map((l) =>

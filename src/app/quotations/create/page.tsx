@@ -16,6 +16,7 @@ import {
 import { Company, Product, Customer } from "@/lib/types";
 import {
   calculateRentalDays,
+  getRentalDateError,
   calculateDocumentFinancials,
   formatINR,
 } from "@/lib/calculations/financial";
@@ -119,7 +120,7 @@ export default function CreateQuotationPage() {
   }, []);
 
   useEffect(() => {
-    const days = calculateRentalDays(rentalStartDate, rentalEndDate);
+    const days = Math.max(1, calculateRentalDays(rentalStartDate, rentalEndDate)); // a same-day rental is billed as 1 day
     setRentalDays(days);
     setLines((prev) =>
       prev.map((l) =>
@@ -269,6 +270,12 @@ export default function CreateQuotationPage() {
 
     if (!customerName.trim() || !customerPhone.trim()) {
       setFormError("Customer name and phone number are required.");
+      return;
+    }
+
+    const dateError = getRentalDateError(rentalStartDate, rentalEndDate);
+    if (dateError) {
+      setFormError(dateError);
       return;
     }
 
