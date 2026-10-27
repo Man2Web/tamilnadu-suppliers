@@ -381,7 +381,8 @@ export function mapQuotationToRow(quote: Partial<Quotation>): Record<string, any
   if (quote.placeOfSupply !== undefined) row.place_of_supply = quote.placeOfSupply;
   if (quote.rentalStartDate !== undefined) row.rental_start_date = quote.rentalStartDate;
   if (quote.rentalEndDate !== undefined) row.rental_end_date = quote.rentalEndDate;
-  if (quote.rentalDays !== undefined) row.rental_days = quote.rentalDays;
+  // A same-day rental computes to 0 days for display, but the database requires at least 1.
+  if (quote.rentalDays !== undefined) row.rental_days = Math.max(1, Number(quote.rentalDays) || 1);
   if (quote.status !== undefined) {
     const s = String(quote.status).toUpperCase();
     row.status = s === "APPROVED" ? "ACCEPTED" : s;
@@ -604,7 +605,7 @@ export function mapBillToRow(bill: Partial<Bill>): Record<string, any> {
     row.rental_end_date = bill.expectedReturnDate;
   }
   if (bill.rentalDays !== undefined || bill.rentalDuration !== undefined) {
-    row.rental_days = bill.rentalDays ?? bill.rentalDuration;
+    row.rental_days = Math.max(1, Number(bill.rentalDays ?? bill.rentalDuration) || 1);
   }
   if (bill.status !== undefined) {
     const s = String(bill.status).toUpperCase();
@@ -770,7 +771,7 @@ export function mapUserFromRow(row: any, includeSensitive = false): User {
     phone: row.phone,
     role: effectiveRole,
     status: row.status,
-    mustChangePassword: false,
+    mustChangePassword: row.must_change_password === true,
     permissions: perms.filter((p) => !p.startsWith("role:")) as ModulePermissionId[],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -787,6 +788,8 @@ export function mapUserToRow(user: Partial<User>): Record<string, any> {
   if (user.email !== undefined) row.email = user.email;
   if (user.name !== undefined) row.name = user.name;
   if (user.phone !== undefined) row.phone = user.phone;
+  if (user.username !== undefined) row.username = user.username;
+  if (user.mustChangePassword !== undefined) row.must_change_password = !!user.mustChangePassword;
 
   // Role mapping: Database check constraint enforces ('SUPER_ADMIN', 'EMPLOYEE')
   let perms: string[] = Array.isArray(user.permissions) ? [...user.permissions] : [];

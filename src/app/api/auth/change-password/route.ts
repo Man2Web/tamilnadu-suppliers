@@ -56,7 +56,8 @@ export async function POST(req: NextRequest) {
     const result = await store.changePassword(actor.userId, currentPassword, newPassword);
 
     // Re-issue updated JWT session token with mustChangePassword = false
-    const updatedToken = await createSessionToken(result.user);
+    // Keep the current server-side session id; a token with a new id would be rejected as an unknown session
+    const updatedToken = await createSessionToken(result.user, actor.sessionId || undefined);
 
     const response = NextResponse.json({
       success: true,

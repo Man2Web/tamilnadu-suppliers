@@ -677,7 +677,7 @@ export class SupabaseStore {
       data.rentalStartDate && data.rentalEndDate
         ? calculateRentalDays(data.rentalStartDate, data.rentalEndDate)
         : 1;
-    const rentalDuration = data.rentalDays !== undefined ? Number(data.rentalDays) : calculatedDays;
+    const rentalDuration = Math.max(1, (data.rentalDays !== undefined ? Number(data.rentalDays) : calculatedDays) || 1);
 
     const branchItems = data.branches && Array.isArray(data.branches)
       ? data.branches.flatMap((b: any) => b.items || [])
@@ -1465,7 +1465,7 @@ export class SupabaseStore {
       data.rentalStartDate && data.rentalEndDate
         ? calculateRentalDays(data.rentalStartDate, data.rentalEndDate)
         : 1;
-    const rentalDuration = data.rentalDays !== undefined ? Number(data.rentalDays) : calculatedDays;
+    const rentalDuration = Math.max(1, (data.rentalDays !== undefined ? Number(data.rentalDays) : calculatedDays) || 1);
 
     const branchItems = data.branches && Array.isArray(data.branches)
       ? data.branches.flatMap((b: any) => b.items || [])
@@ -3593,6 +3593,12 @@ export class SupabaseStore {
       .maybeSingle();
 
     if (!data && !trimmed.includes("@")) {
+      // exact username match first, then the legacy "starts with" lookup
+      const byUsername = await this.supabase.from("users").select("*").ilike("username", trimmed).limit(1).maybeSingle();
+      data = byUsername.data;
+    }
+
+    if (!data && !trimmed.includes("@")) {
       const res = await this.supabase
         .from("users")
         .select("*")
@@ -3608,6 +3614,31 @@ export class SupabaseStore {
   async createUser(data: any, actorRole?: string): Promise<User> {
     if (actorRole && actorRole !== "SUPER_ADMIN") {
       throw new Error("Forbidden: Only Super Administrator can create user accounts.");
+    }
+
+    // Validate on the server as well: the New Account page checks these, but the API must not rely on the page.
+    const name = String(data.name ?? "").trim();
+    if (!name) throw new Error("Full name is required.");
+    const emailInput = String(data.email ?? "").trim().toLowerCase();
+    const usernameInput = String(data.username ?? "").trim().toLowerCase();
+    if (!emailInput && !usernameInput) throw new Error("Email or username is required.");
+    if (emailInput && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput)) throw new Error("Email address is not valid.");
+    if (data.role !== undefined && !["SUPER_ADMIN", "ADMIN", "BILLING", "EMPLOYEE"].includes(data.role)) {
+      throw new Error("Role must be SUPER_ADMIN, ADMIN, BILLING or EMPLOYEE.");
+    }
+    if (!data.passwordHash && (typeof data.password !== "string" || data.password.length < 6)) {
+      throw new Error("Password must be at least 6 characters.");
+    }
+    // A username-only account uses its username as the login email (the page allows email OR username)
+    // (login maps a bare username to <username>@tamilnadusuppliers.com, so store it in that form)
+    const loginEmail = emailInput || `${usernameInput}@tamilnadusuppliers.com`;
+    const loginUsername = usernameInput || emailInput.split("@")[0];
+    const sameEmail = await this.supabase.from("users").select("id").eq("email", loginEmail).limit(1).maybeSingle();
+    const sameUsername = loginUsername
+      ? await this.supabase.from("users").select("id").ilike("username", loginUsername).limit(1).maybeSingle()
+      : { data: null };
+    if (sameEmail.data || sameUsername.data) {
+      throw new Error("An account with this email or username already exists.");
     }
 
     const id = data.id || crypto.randomUUID();
@@ -3628,8 +3659,9 @@ export class SupabaseStore {
     const newUser: User = {
       ...data,
       id,
-      email: data.email.trim().toLowerCase(),
-      username: data.username ? data.username.trim().toLowerCase() : data.email.trim().toLowerCase(),
+      name,
+      email: loginEmail,
+      username: loginUsername,
       role: data.role || "EMPLOYEE",
       status: data.status || "ACTIVE",
       passwordHash,
@@ -3646,7 +3678,12 @@ export class SupabaseStore {
       .select()
       .single();
 
-    if (error) throw new Error(`Supabase error creating user: ${error.message}`);
+    if (error) {
+      if ((error as any).code === "23505" || /duplicate key|unique/i.test(error.message)) {
+        throw new Error("An account with this email or username already exists.");
+      }
+      throw new Error(`Supabase error creating user: ${error.message}`);
+    }
     return mapUserFromRow(inserted, false);
   }
 
@@ -3742,7 +3779,10 @@ export class SupabaseStore {
       return null;
     }
 
-    return mapUserFromRow(user, false);
+    // `user` is already a mapped User; map nothing twice (that dropped fields such as mustChangePassword).
+    const { passwordHash: _passwordHash, ...safeUser } = user;
+    void _passwordHash;
+    return safeUser as User;
   }
 
   async isSuperAdminInitialized(): Promise<boolean> {
