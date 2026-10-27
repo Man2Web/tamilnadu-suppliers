@@ -883,7 +883,7 @@ export class SupabaseStore {
       const branchQuotationItems: QuotationItem[] = [];
 
       const itemRows = bItems.map((it: any, itIdx: number) => {
-        const qty = Number(it.quantity) || 1;
+        const qty = it.entryType === "note" ? 0 : Number(it.quantity) || 1; // note lines carry no quantity
         const days = it.days !== undefined ? Number(it.days) : (it.rentalDurationDays !== undefined ? Number(it.rentalDurationDays) : rentalDuration);
         const unitPrice = Number(it.unitPrice ?? it.rentalRate ?? 0);
         const amount = it.amount !== undefined ? Number(it.amount) : (it.lineTotal !== undefined ? Number(it.lineTotal) : Math.round(qty * days * unitPrice * 100) / 100);
@@ -1752,7 +1752,7 @@ export class SupabaseStore {
       const branchBillItems: BillItem[] = [];
 
       const itemRows = bItems.map((it: any, itIdx: number) => {
-        const qty = Number(it.quantity) || 1;
+        const qty = it.entryType === "note" ? 0 : Number(it.quantity) || 1; // note lines carry no quantity (they must never be dispatched)
         const days = it.days !== undefined ? Number(it.days) : (it.rentalDurationDays !== undefined ? Number(it.rentalDurationDays) : rentalDuration);
         const unitPrice = Number(it.unitPrice ?? it.rentalRate ?? 0);
         const amount = it.amount !== undefined ? Number(it.amount) : (it.lineTotal !== undefined ? Number(it.lineTotal) : Math.round(qty * days * unitPrice * 100) / 100);

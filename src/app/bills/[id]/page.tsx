@@ -370,7 +370,9 @@ export default function BillWorkspacePage({
   }
 
   const productLines = billLines.filter((l) => l.entryType !== "note");
-  const totalDispatched = bill.totalDispatched || productLines.reduce((acc, it) => acc + (it.quantity || 0), 0);
+  // A bill that has not been dispatched yet has nothing dispatched or returned, whatever the pre-filled return fields say
+  const isUndispatched = !bill.totalDispatched && (bill.status === "ACTIVE" || bill.status === "ISSUED");
+  const totalDispatched = isUndispatched ? 0 : bill.totalDispatched || productLines.reduce((acc, it) => acc + (it.quantity || 0), 0);
 
   // Live row calculations
   let liveGood = 0;
@@ -394,7 +396,7 @@ export default function BillWorkspacePage({
     }
   });
 
-  const totalAccounted = liveGood + liveDamaged + liveMissing;
+  const totalAccounted = isUndispatched ? 0 : liveGood + liveDamaged + liveMissing;
 
   // Check if any product row has pending decisions
   const hasPendingDecisions = productLines.some((it) => {
@@ -1991,12 +1993,18 @@ export default function BillWorkspacePage({
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
           {/* Condition 1 */}
-          <div className="p-3 rounded-xl border flex items-start gap-2.5 bg-emerald-50/60 border-emerald-200">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+          <div className={`p-3 rounded-xl border flex items-start gap-2.5 ${isUndispatched ? "bg-amber-50/60 border-amber-200" : "bg-emerald-50/60 border-emerald-200"}`}>
+            {isUndispatched ? (
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            )}
             <div>
               <div className="font-bold text-slate-900">1. Product Returns Tracked</div>
               <div className="text-slate-600 mt-0.5">
-                {totalAccounted} of {totalDispatched} units accounted for.
+                {isUndispatched
+                  ? "Not dispatched yet. Dispatch the items first; returns are recorded after dispatch."
+                  : `${totalAccounted} of ${totalDispatched} units accounted for.`}
               </div>
               <div className="text-[11px] font-mono mt-0.5 text-slate-500">
                 Returned Good: {liveGood} | Damaged: {liveDamaged} | Missing: {liveMissing}

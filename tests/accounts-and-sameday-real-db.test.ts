@@ -148,4 +148,24 @@ describe("Accounts and same-day rentals on real PostgreSQL", { skip: !testDb.isC
     );
     assert.equal(Number((await read()).grand_total), 1062);
   });
+
+  it("document notes on a bill are stored with quantity 0 so they can never be dispatched as goods", async () => {
+    const line = { productId: `${P}prod`, itemName: `${P}Chair`, sizeSpec: "std", quantity: 10, days: 1, unitPrice: 20, amount: 200 };
+    const note = { entryType: "note", text: "Customer collects from the yard gate", itemName: "Customer collects from the yard gate", position: 2 };
+    const bill = await store.createBill({
+      companyId: COMPANY_ID, customerName: `${P}Cust`, customerPhone: "9000000057", customerAddress: "x",
+      rentalStartDate: "2026-11-05", rentalEndDate: "2026-11-06", items: [line, note], documentLines: [line, note],
+    });
+    const rows = (await pool.query(
+      `SELECT entry_type, quantity, amount FROM public.bill_items WHERE bill_id = $1 ORDER BY position`, [bill.id])).rows;
+    assert.deepEqual(rows.map((r) => [r.entry_type, r.quantity]), [["product", 10], ["note", 0]]);
+
+    const quote = await store.createQuotation({
+      companyId: COMPANY_ID, customerName: `${P}Cust`, customerPhone: "9000000057", customerAddress: "x",
+      rentalStartDate: "2026-11-05", rentalEndDate: "2026-11-06", items: [line, note], documentLines: [line, note],
+    });
+    const qrows = (await pool.query(
+      `SELECT entry_type, quantity FROM public.quotation_items WHERE quotation_id = $1 ORDER BY position`, [quote.id])).rows;
+    assert.deepEqual(qrows.map((r) => [r.entry_type, r.quantity]), [["product", 10], ["note", 0]]);
+  });
 });

@@ -48,8 +48,9 @@ export async function POST(
       driverName: body.driverName || null,
       driverPhone: body.driverPhone || null,
       notes: body.notes || null,
+      // Document notes are not goods: only product lines are dispatched
       items: body.items || (bill.branches || []).flatMap((b) =>
-        b.items.map((it) => ({
+        b.items.filter((it) => (it.entryType || "product") !== "note").map((it) => ({
           productId: it.productId,
           itemName: it.itemName,
           sizeSpec: it.sizeSpec,
