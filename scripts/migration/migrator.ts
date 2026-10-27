@@ -183,6 +183,7 @@ export class DataMigrator {
       const reconciler = new MigrationReconciler(client);
       report = await reconciler.runReconciliation(sourceCounts, "dry-run", {
         skipSessions: this.config.options?.skipSessions ?? true,
+        selectedTables: this.config.options?.onlyTables?.length ? topologicalOrder : undefined,
       });
     } finally {
       // CRITICAL: Unconditional rollback ensures dry-run CANNOT commit target data
@@ -209,9 +210,9 @@ export class DataMigrator {
   async runImportDisposable(modeLabel: "import-disposable" | "import-production" = "import-disposable"): Promise<{ success: boolean; report: ReconciliationReport; summary: string; details: any }> {
     // 1. Verify Target Live Connection and Preconditions (Must be empty to avoid data corruption or collision)
     await assertLiveTargetConnection(this.targetPool, this.config.target, this.productionProfile);
-    await this.assertTargetEmptyPrecondition();
-
     const topologicalOrder = this.getSelectedOrder();
+    await this.assertTargetEmptyPrecondition(topologicalOrder);
+
     const sourceCounts = new Map<string, number>();
     const transformedBatches = new Map<string, Array<Record<string, any>>>();
     const importResults: TableImportResult[] = [];
@@ -258,6 +259,7 @@ export class DataMigrator {
       const reconciler = new MigrationReconciler(client);
       report = await reconciler.runReconciliation(sourceCounts, modeLabel, {
         skipSessions: this.config.options?.skipSessions ?? true,
+        selectedTables: this.config.options?.onlyTables?.length ? topologicalOrder : undefined,
       });
 
       if (report.overallStatus === "PASSED") {
@@ -284,6 +286,7 @@ export class DataMigrator {
     // Post-commit verification from a fresh connection: the data must really be there.
     const postCommit = await new MigrationReconciler(this.targetPool).runReconciliation(sourceCounts, modeLabel, {
       skipSessions: this.config.options?.skipSessions ?? true,
+      selectedTables: this.config.options?.onlyTables?.length ? topologicalOrder : undefined,
     });
     if (postCommit.overallStatus !== "PASSED") {
       throw new Error(
@@ -318,6 +321,7 @@ export class DataMigrator {
     const reconciler = new MigrationReconciler(this.targetPool);
     const report = await reconciler.runReconciliation(sourceCounts, "reconcile", {
       skipSessions: this.config.options?.skipSessions ?? true,
+      selectedTables: this.config.options?.onlyTables?.length ? topologicalOrder : undefined,
     });
     const summary = formatReconciliationSummary(report);
 
@@ -456,10 +460,9 @@ export class DataMigrator {
   }
 
   /**
-   * Asserts that target disposable database contains no pre-existing application data across all 26 schema tables.
+   * Asserts that the tables about to be written (all 26 unless --only-tables is set) hold no pre-existing data.
    */
-  private async assertTargetEmptyPrecondition(): Promise<void> {
-    const checkTables = AUTHORITATIVE_TABLE_GRAPH.map((t) => t.name);
+  private async assertTargetEmptyPrecondition(checkTables: string[]): Promise<void> {
     for (const tbl of checkTables) {
       const res = await this.targetPool.query(`SELECT COUNT(*)::int as cnt FROM public."${tbl}";`);
       if (res.rows[0].cnt > 0) {

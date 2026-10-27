@@ -38,7 +38,7 @@ export class MigrationReconciler {
   async runReconciliation(
     sourceCounts: Map<string, number>,
     mode: MigrationMode,
-    options?: { skipSessions?: boolean }
+    options?: { skipSessions?: boolean; selectedTables?: string[] }
   ): Promise<ReconciliationReport> {
     const report: ReconciliationReport = {
       timestamp: new Date().toISOString(),
@@ -55,6 +55,8 @@ export class MigrationReconciler {
     // 1. Table Row Counts
     for (const tableDef of AUTHORITATIVE_TABLE_GRAPH) {
       const tableName = tableDef.name;
+      // A partial run (--only-tables) is only responsible for the tables it wrote.
+      if (options?.selectedTables && !options.selectedTables.includes(tableName)) continue;
       const srcCount = sourceCounts.get(tableName) || 0;
 
       let tgtCount = 0;
