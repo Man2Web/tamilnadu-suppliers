@@ -21,7 +21,11 @@ export async function GET(req: Request) {
   let bills = await store.getBills();
 
   if (status) {
-    bills = bills.filter((b) => b.status === status);
+    if (status === "ISSUED" || status === "ACTIVE") {
+      bills = bills.filter((b) => b.status === "ISSUED" || b.status === "ACTIVE");
+    } else {
+      bills = bills.filter((b) => b.status === status);
+    }
   }
   if (companyId) {
     bills = bills.filter((b) => b.companyId === companyId);

@@ -11,6 +11,7 @@ import {
   Quotation,
   QuotationItem,
   Bill,
+  BillStatus,
   BillItem,
   Payment,
   GatePass,
@@ -372,10 +373,7 @@ export function mapQuotationToRow(quote: Partial<Quotation>): Record<string, any
   if (quote.companyId !== undefined) row.company_id = quote.companyId;
   if (quote.companySnapshot !== undefined) row.company_snapshot = quote.companySnapshot;
   if (quote.customerId !== undefined) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(quote.customerId || "");
-    if (isUuid) {
-      row.customer_id = quote.customerId;
-    }
+    row.customer_id = quote.customerId ? String(quote.customerId) : null;
   }
   if (quote.customerName !== undefined) row.customer_name = quote.customerName;
   if (quote.customerPhone !== undefined) row.customer_phone = quote.customerPhone;
@@ -527,6 +525,64 @@ export function mapBillFromRow(row: any, items: BillItem[] = []): Bill {
   };
 }
 
+/**
+ * Computes authoritative operational status for rental bills based on gate-pass dispatches,
+ * physical returns, damage/missing incident resolution, and closure status.
+ */
+export function computeBillOperationalStatus(params: {
+  currentStatus?: string;
+  totalDispatched: number;
+  hasGatePasses: boolean;
+  totalReturnedGood?: number;
+  totalDamaged?: number;
+  totalMissing?: number;
+  incidents?: Array<{ chargeApprovalStatus?: string; type?: string }>;
+  documentLines?: any[];
+}): BillStatus {
+  const norm = String(params.currentStatus || "").toUpperCase();
+
+  // 1. Closed or Cancelled bills always retain CLOSED / CANCELLED
+  if (norm === "CLOSED" || norm === "SETTLED" || norm === "PAID") {
+    return "CLOSED";
+  }
+  if (norm === "CANCELLED") {
+    return "CANCELLED";
+  }
+
+  // 2. Compute accounted quantity
+  const good = Number(params.totalReturnedGood || 0);
+  const damaged = Number(params.totalDamaged || 0);
+  const missing = Number(params.totalMissing || 0);
+  const accounted = good + damaged + missing;
+
+  // 3. Check for pending incident decisions
+  const hasPendingIncidents =
+    (params.incidents || []).some(
+      (i) => i.chargeApprovalStatus === "PENDING_DECISION"
+    ) ||
+    (params.documentLines || []).some(
+      (l) =>
+        (Number(l.quantityDamaged || 0) > 0 && l.damageChargeDecision === "PENDING_DECISION") ||
+        (Number(l.quantityMissing || 0) > 0 && l.missingChargeDecision === "PENDING_DECISION")
+    );
+
+  const dispatched = Number(params.totalDispatched || 0);
+
+  // 4. Dispatched bills
+  if (dispatched > 0 || params.hasGatePasses) {
+    if (dispatched > 0 && accounted >= dispatched) {
+      return hasPendingIncidents ? "RETURN_INSPECTION" : "PENDING_SETTLEMENT";
+    }
+    if (accounted > 0) {
+      return "PARTIALLY_RETURNED";
+    }
+    return "OUT_ON_RENT";
+  }
+
+  // 5. Undispatched bill: retain ACTIVE or ISSUED
+  return norm === "ACTIVE" || norm === "ISSUED" || !norm ? "ACTIVE" : (norm as BillStatus);
+}
+
 export function mapBillToRow(bill: Partial<Bill>): Record<string, any> {
   const row: Record<string, any> = {};
   if (bill.id !== undefined) row.id = bill.id;
@@ -535,10 +591,7 @@ export function mapBillToRow(bill: Partial<Bill>): Record<string, any> {
   if (bill.companySnapshot !== undefined) row.company_snapshot = bill.companySnapshot;
   if (bill.sourceQuotationId !== undefined) row.source_quotation_id = bill.sourceQuotationId || null;
   if (bill.customerId !== undefined) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bill.customerId || "");
-    if (isUuid) {
-      row.customer_id = bill.customerId;
-    }
+    row.customer_id = bill.customerId ? String(bill.customerId) : null;
   }
   if (bill.customerName !== undefined) row.customer_name = bill.customerName;
   if (bill.customerPhone !== undefined) row.customer_phone = bill.customerPhone;
@@ -592,7 +645,19 @@ export function mapBillToRow(bill: Partial<Bill>): Record<string, any> {
   if (bill.securityDepositHeld !== undefined) row.security_deposit_held = bill.securityDepositHeld;
   if (bill.amountPaid !== undefined) row.amount_paid = bill.amountPaid;
   if (bill.balanceDue !== undefined) row.balance_due = bill.balanceDue;
+  if (bill.paymentStatus !== undefined) row.payment_status = bill.paymentStatus;
   if (bill.amountInWords !== undefined) row.amount_in_words = bill.amountInWords;
+  if (bill.originalGrandTotal !== undefined) row.original_grand_total = bill.originalGrandTotal;
+  if (bill.additionalRentalCharges !== undefined) row.additional_rental_charges = bill.additionalRentalCharges;
+  if (bill.approvedDamageCharges !== undefined) row.approved_damage_charges = bill.approvedDamageCharges;
+  if (bill.approvedMissingCharges !== undefined) row.approved_missing_charges = bill.approvedMissingCharges;
+  if (bill.lateFeeCharges !== undefined) row.late_fee_charges = bill.lateFeeCharges;
+  if (bill.depositAdjustment !== undefined) row.deposit_adjustment = bill.depositAdjustment;
+  if (bill.depositRefundDue !== undefined) row.deposit_refund_due = bill.depositRefundDue;
+  if (bill.totalReturnedGood !== undefined) row.total_returned_good = bill.totalReturnedGood;
+  if (bill.totalDamaged !== undefined) row.total_damaged = bill.totalDamaged;
+  if (bill.totalMissing !== undefined) row.total_missing = bill.totalMissing;
+  if (bill.actualReturnDate !== undefined) row.actual_return_date = bill.actualReturnDate;
   if (bill.notes !== undefined) {
     row.notes = bill.notes;
   } else if (bill.notesList && Array.isArray(bill.notesList)) {
@@ -604,6 +669,8 @@ export function mapBillToRow(bill: Partial<Bill>): Record<string, any> {
   } else if ((bill as any).items !== undefined) {
     row.document_lines = (bill as any).items;
   }
+  if (bill.incidents !== undefined) row.incidents = bill.incidents;
+  if (bill.amendments !== undefined) row.amendments = bill.amendments;
   if (bill.createdBy !== undefined) {
     if (bill.createdBy && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bill.createdBy)) {
       row.created_by = bill.createdBy;

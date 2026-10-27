@@ -18,15 +18,23 @@ export async function POST(
     const body = await req.json();
 
     // Duplicate dispatch guard
-    const { data: existingGps } = await (store as any).supabase
-      .from("gate_passes")
-      .select("id, gate_pass_number")
-      .eq("bill_id", id);
-    if (existingGps && existingGps.length > 0 && !body.allowAdditionalDispatch) {
-      return NextResponse.json(
-        { error: `Bill #${bill.billNumber} has already been dispatched under Gate Pass ${existingGps[0].gate_pass_number}. Duplicate dispatch rejected.` },
-        { status: 400 }
-      );
+    const existingGps = await store.getGatePassesByBillId(id);
+    if (existingGps && existingGps.length > 0) {
+      const isElevated =
+        actor.role === "ADMIN" ||
+        actor.role === "SUPER_ADMIN" ||
+        actor.role === "OWNER";
+      const isExplicitTrue = body?.allowAdditionalDispatch === true;
+
+      if (!isExplicitTrue || !isElevated) {
+        const firstGpNum = existingGps[0].gatePassNumber || (existingGps[0] as any).gate_pass_number || existingGps[0].id;
+        return NextResponse.json(
+          {
+            error: `Bill #${bill.billNumber} has already been dispatched under Gate Pass ${firstGpNum}. Duplicate dispatch rejected. Additional dispatches require ADMIN or OWNER authorization with explicit allowAdditionalDispatch flag.`,
+          },
+          { status: 400 }
+        );
+      }
     }
     const gatePass = await store.createGatePass({
       companyId: bill.companyId,
@@ -49,6 +57,7 @@ export async function POST(
         }))
       ),
       actor,
+      allowAdditionalDispatch: body?.allowAdditionalDispatch,
     });
 
     const updatedBill = await store.getBill(id);

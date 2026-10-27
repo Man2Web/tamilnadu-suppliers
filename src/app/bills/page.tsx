@@ -60,6 +60,7 @@ export default function BillsPage() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case "ACTIVE":
       case "ISSUED":
         return <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-blue-50 text-blue-700 border border-blue-200">Issued</span>;
       case "OUT_ON_RENT":

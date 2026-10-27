@@ -177,8 +177,32 @@ export function createRateLimiter(rpc: RpcCaller) {
   };
 }
 
-// Default limiter backed by the Supabase service-role client (loaded lazily).
+// Default limiter backed by the configured database provider (Supabase by default, or standalone PostgreSQL).
 const defaultLimiter = createRateLimiter(async (fn, args) => {
+  const { resolveDbProvider } = await import("@/lib/db/provider");
+  const provider = resolveDbProvider();
+
+  if (provider === "postgres") {
+    const { postgresExecutor } = await import("@/lib/db/postgresClient");
+    const endpoint = `postgres:rpc:${fn}`;
+    try {
+      const res = await postgresExecutor.rpc(fn, args);
+      return {
+        data: res.data,
+        error: res.error,
+        status: res.status,
+        statusText: res.statusText,
+        endpoint,
+      };
+    } catch (err: unknown) {
+      throw new RateLimitUnavailableError(
+        `Login rate-limit store unavailable: PostgreSQL RPC call to '${fn}' threw error: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err, endpoint }
+      );
+    }
+  }
+
+  // Default provider: Supabase
   const { getSupabaseAdminClient, getSupabaseUrl } = await import("@/lib/db/supabaseClient");
   const endpoint = `${getSupabaseUrl() || "https://lznyejowgqwbavtnqqns.supabase.co"}/rest/v1/rpc/${fn}`;
   try {

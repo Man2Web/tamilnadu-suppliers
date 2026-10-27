@@ -428,6 +428,7 @@ export default function BillWorkspacePage({
   // Status Badges
   const getOperationalStatusBadge = (status: string) => {
     switch (status) {
+      case "ACTIVE":
       case "ISSUED":
         return <span className="px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full font-bold text-xs">Issued</span>;
       case "OUT_ON_RENT":
@@ -999,7 +1000,7 @@ export default function BillWorkspacePage({
             <span>Activity History</span>
           </a>
 
-          {bill.status === "ISSUED" && (
+          {(bill.status === "ISSUED" || bill.status === "ACTIVE") && (
             <button
               onClick={handleDispatch}
               disabled={submitting}

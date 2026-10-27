@@ -67,22 +67,71 @@ export function collectEnvDiagnostics(rawEnv = process.env) {
     env[name] = clean(value);
     if (env[name] !== value.trim() || value !== value.trim()) quoted.push(name);
   }
+  const rawProvider = (env.DB_PROVIDER || "").trim().toLowerCase();
+  let provider = "supabase";
+  let isPostgres = false;
+  let postgresSummary = null;
+
+  if (rawProvider && rawProvider !== "supabase" && rawProvider !== "postgres") {
+    problems.push(`Invalid DB_PROVIDER='${rawProvider}'. Allowed values are 'supabase' (or unset) or 'postgres'.`);
+  } else if (rawProvider === "postgres") {
+    provider = "postgres";
+    isPostgres = true;
+  }
+
+  // Determine required keys based on active provider
+  const requiredKeys = isPostgres
+    ? ["DATABASE_URL", "SESSION_SECRET"]
+    : REQUIRED;
+
   for (const name of quoted) {
-    if (REQUIRED.includes(name) || name === "TRUSTED_PROXY_COUNT") {
+    if (requiredKeys.includes(name) || name === "TRUSTED_PROXY_COUNT" || name === "DB_PROVIDER") {
       problems.push(`${name} was saved with surrounding quotes/whitespace (the app strips them, but re-save it without quotes in Coolify).`);
     }
   }
+
   const present = {};
-  for (const name of REQUIRED) present[name] = Boolean((env[name] || "").trim());
-  for (const name of REQUIRED) {
+  for (const name of [...REQUIRED, "DATABASE_URL", "DB_PROVIDER"]) {
+    present[name] = Boolean((env[name] || "").trim());
+  }
+
+  for (const name of requiredKeys) {
     if (!present[name]) problems.push(`${name} is not set in the running server.`);
+  }
+
+  if (isPostgres && present.DATABASE_URL) {
+    const rawUrl = (env.DATABASE_URL || "").trim();
+    if (!rawUrl.startsWith("postgres://") && !rawUrl.startsWith("postgresql://")) {
+      problems.push("DATABASE_URL must start with 'postgres://' or 'postgresql://'.");
+    } else {
+      try {
+        const parsed = new URL(rawUrl);
+        const host = (parsed.hostname || "").toLowerCase();
+        if (!host) {
+          problems.push("DATABASE_URL is missing a valid hostname.");
+        } else if (host.endsWith(".supabase.co") || host === "supabase.co" || host.includes("supabase") || rawUrl.includes(ALLOWED_SUPABASE_PROJECT_REF)) {
+          problems.push("DATABASE_URL points to a Supabase host or project, which is rejected when DB_PROVIDER='postgres'.");
+        } else {
+          postgresSummary = {
+            protocol: parsed.protocol.replace(/:$/, ""),
+            host,
+            port: parsed.port ? parseInt(parsed.port, 10) : 5432,
+            database: (parsed.pathname || "").replace(/^\//, ""),
+          };
+        }
+      } catch {
+        problems.push("DATABASE_URL is not a well-formed PostgreSQL URL.");
+      }
+    }
   }
 
   const url = (env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
   const projectRef = url ? urlRef(url) : null;
-  if (url && !projectRef) problems.push("NEXT_PUBLIC_SUPABASE_URL is not a https://<project-ref>.supabase.co URL.");
-  if (projectRef && projectRef !== ALLOWED_SUPABASE_PROJECT_REF) {
-    problems.push(`NEXT_PUBLIC_SUPABASE_URL points at project '${projectRef}', not the dedicated project '${ALLOWED_SUPABASE_PROJECT_REF}'.`);
+  if (!isPostgres) {
+    if (url && !projectRef) problems.push("NEXT_PUBLIC_SUPABASE_URL is not a https://<project-ref>.supabase.co URL.");
+    if (projectRef && projectRef !== ALLOWED_SUPABASE_PROJECT_REF) {
+      problems.push(`NEXT_PUBLIC_SUPABASE_URL points at project '${projectRef}', not the dedicated project '${ALLOWED_SUPABASE_PROJECT_REF}'.`);
+    }
   }
 
   const service = inspectKey(env.SUPABASE_SERVICE_ROLE_KEY);
@@ -126,6 +175,13 @@ export function collectEnvDiagnostics(rawEnv = process.env) {
 
   return {
     nodeEnv: env.NODE_ENV || null,
+    provider: {
+      name: provider,
+      raw: rawProvider || null,
+      isPostgres,
+      isSupabase: !isPostgres,
+    },
+    postgres: postgresSummary,
     present,
     supabase: {
       urlProjectRef: projectRef,

@@ -6,6 +6,8 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { getSupabaseAdminClient } from "./supabaseClient";
+import { resolveDbProvider } from "./provider";
+import { postgresExecutor, PostgresExecutor } from "./postgresClient";
 import {
   mapCompanyFromRow,
   mapCompanyToRow,
@@ -19,6 +21,7 @@ import {
   mapQuotationToRow,
   mapBillFromRow,
   mapBillToRow,
+  computeBillOperationalStatus,
   mapPaymentFromRow,
   mapPaymentToRow,
   mapGatePassFromRow,
@@ -84,9 +87,57 @@ export function toValidUuid(val?: string | null): string {
 }
 
 export class SupabaseStore {
+  private executorOverride?: PostgresExecutor | any;
 
-  private get supabase() {
+  constructor(executorOverride?: PostgresExecutor | any) {
+    this.executorOverride = executorOverride;
+  }
+
+  private get supabase(): any {
+    if (this.executorOverride) {
+      return this.executorOverride;
+    }
+    if (resolveDbProvider() === "postgres") {
+      return postgresExecutor;
+    }
     return getSupabaseAdminClient();
+  }
+
+  /**
+   * Executes an application workflow within a transaction boundary if supported by the active provider.
+   *
+   * Provider Behavior:
+   * - PostgreSQL (DB_PROVIDER='postgres'):
+   *   Checks out a dedicated PoolClient, issues BEGIN, and runs the callback with a transaction-scoped
+   *   store instance where every query executes on that single client. Commits on success, rolls back
+   *   on error, and releases the client in finally. Supports nested savepoints if called recursively.
+   *
+   * - Supabase (DB_PROVIDER='supabase' or unset):
+   *   EXPLICIT LIMITATION: Supabase PostgREST does NOT support multi-table cross-request transactions.
+   *   The callback executes sequentially against PostgREST. If an error occurs halfway through,
+   *   prior writes remain committed. True cross-table atomicity on Supabase requires custom PostgreSQL RPC.
+   */
+  async withTransaction<T>(
+    callback: (txStore: SupabaseStore) => Promise<T>
+  ): Promise<T> {
+    if (this.executorOverride && typeof (this.executorOverride as any).transaction === "function") {
+      return (this.executorOverride as any).transaction(async (nestedTx: PostgresExecutor) => {
+        const nestedStore = Object.create(this);
+        nestedStore.executorOverride = nestedTx;
+        return callback(nestedStore);
+      });
+    }
+
+    if (resolveDbProvider() === "postgres") {
+      return postgresExecutor.transaction(async (tx) => {
+        const txStore = Object.create(this);
+        txStore.executorOverride = tx;
+        return callback(txStore);
+      });
+    }
+
+    // Supabase fallback: sequential execution (preserving existing production behavior)
+    return callback(this);
   }
 
   resolveActor(actorOrId?: any): { id: string; name: string; role: string; username?: string } {
@@ -122,12 +173,15 @@ export class SupabaseStore {
     return (data || []).map(mapCompanyFromRow);
   }
 
-  async getCompany(id: string): Promise<Company | undefined> {
-    const { data, error } = await this.supabase
+  async getCompany(id: string, options?: { forUpdate?: boolean }): Promise<Company | undefined> {
+    let query = this.supabase
       .from("companies")
       .select("*")
-      .eq("id", id)
-      .maybeSingle();
+      .eq("id", id);
+    if (options?.forUpdate && typeof (query as any).forUpdate === "function") {
+      query = (query as any).forUpdate();
+    }
+    const { data, error } = await query.maybeSingle();
     if (error) throw new Error(`Supabase error fetching company ${id}: ${error.message}`);
     return data ? mapCompanyFromRow(data) : undefined;
   }
@@ -211,7 +265,7 @@ export class SupabaseStore {
   }
 
   async getNextDocumentNumber(companyId: string, docType: "INVOICE" | "QUOTATION" | "GATE_PASS"): Promise<string> {
-    const comp = await this.getCompany(companyId);
+    const comp = await this.getCompany(companyId, { forUpdate: Boolean(this.executorOverride) });
     if (!comp) throw new Error("Issuing company not found");
 
     let num = 1;
@@ -226,7 +280,7 @@ export class SupabaseStore {
         const { data } = await this.supabase
           .from("bills")
           .select("id")
-          .eq("invoice_number", candidate)
+          .eq("bill_number", candidate)
           .maybeSingle();
         if (!data) break;
         num++;
@@ -326,13 +380,18 @@ export class SupabaseStore {
     return (data || []).map(mapProductFromRow);
   }
 
-  async getProduct(id: string): Promise<Product | undefined> {
+  async getProduct(id: string, options?: { forUpdate?: boolean }): Promise<Product | undefined> {
     // Look up by ID or SKU (supports both legacy p1 and new UUIDs)
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from("products")
       .select("*")
-      .or(`id.eq.${id},sku.eq.${id}`)
-      .maybeSingle();
+      .or(`id.eq.${id},sku.eq.${id}`);
+
+    if (options?.forUpdate && typeof (query as any).forUpdate === "function") {
+      query = (query as any).forUpdate();
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (error) throw new Error(`Supabase error fetching product ${id}: ${error.message}`);
     return data ? mapProductFromRow(data) : undefined;
@@ -558,12 +617,15 @@ export class SupabaseStore {
     return (data || []).map((row) => mapQuotationFromRow(row));
   }
 
-  async getQuotation(id: string): Promise<Quotation | undefined> {
-    const { data, error } = await this.supabase
+  async getQuotation(id: string, options?: { forUpdate?: boolean }): Promise<Quotation | undefined> {
+    let query = this.supabase
       .from("quotations")
       .select("*")
-      .eq("id", id)
-      .maybeSingle();
+      .eq("id", id);
+    if (options?.forUpdate && typeof (query as any).forUpdate === "function") {
+      query = (query as any).forUpdate();
+    }
+    const { data, error } = await query.maybeSingle();
     if (error) throw new Error(`Supabase error fetching quotation ${id}: ${error.message}`);
     if (!data) return undefined;
 
@@ -900,6 +962,13 @@ export class SupabaseStore {
   }
 
   async updateQuotation(id: string, updates: Partial<Quotation>, actor?: any): Promise<Quotation> {
+    if (this.executorOverride) {
+      return this.executeUpdateQuotation(id, updates, actor);
+    }
+    return this.withTransaction((txStore) => txStore.executeUpdateQuotation(id, updates, actor));
+  }
+
+  private async executeUpdateQuotation(id: string, updates: Partial<Quotation>, actor?: any): Promise<Quotation> {
     const existing = await this.getQuotation(id);
     if (!existing) throw new Error(`Quotation ${id} not found`);
 
@@ -930,7 +999,10 @@ export class SupabaseStore {
         created_at: new Date().toISOString(),
       }));
       if (itemRows.length > 0) {
-        await this.supabase.from("quotation_items").insert(itemRows);
+        const { error: insertErr } = await this.supabase.from("quotation_items").insert(itemRows);
+        if (insertErr) {
+          throw new Error(`Supabase error inserting quotation items: ${insertErr.message}`);
+        }
       }
     }
 
@@ -1039,30 +1111,137 @@ export class SupabaseStore {
       .select("*")
       .order("created_at", { ascending: false });
     if (error) throw new Error(`Supabase error fetching bills: ${error.message}`);
-    return (data || []).map((row) => mapBillFromRow(row));
+    const billRows = data || [];
+    if (billRows.length === 0) return [];
+
+    const billIds = billRows.map((r: any) => r.id).filter(Boolean);
+
+    // Batched query 1: Fetch gate passes for all loaded bills
+    const { data: allGps, error: gpErr } = await this.supabase
+      .from("gate_passes")
+      .select("id, bill_id, status")
+      .in("bill_id", billIds);
+    if (gpErr) throw new Error(`Supabase error fetching gate passes for bills: ${gpErr.message}`);
+
+    const gps = allGps || [];
+    const gpIds = gps.map((gp: any) => gp.id).filter(Boolean);
+
+    // Map billId -> list of gate passes
+    const billGpsMap = new Map<string, any[]>();
+    for (const gp of gps) {
+      if (gp.bill_id) {
+        const list = billGpsMap.get(gp.bill_id) || [];
+        list.push(gp);
+        billGpsMap.set(gp.bill_id, list);
+      }
+    }
+
+    // Batched query 2: Fetch gate pass items for all loaded gate passes
+    const gpItemsByGpId = new Map<string, any[]>();
+    if (gpIds.length > 0) {
+      const { data: allGpi, error: gpiErr } = await this.supabase
+        .from("gate_pass_items")
+        .select("id, gate_pass_id, quantity_dispatched, quantity_returned, quantity_damaged, quantity_missing")
+        .in("gate_pass_id", gpIds);
+      if (gpiErr) throw new Error(`Supabase error fetching gate pass items for bills: ${gpiErr.message}`);
+
+      for (const gpi of allGpi || []) {
+        if (gpi.gate_pass_id) {
+          const list = gpItemsByGpId.get(gpi.gate_pass_id) || [];
+          list.push(gpi);
+          gpItemsByGpId.set(gpi.gate_pass_id, list);
+        }
+      }
+    }
+
+    return billRows.map((row: any) => {
+      const bill = mapBillFromRow(row);
+      const billGps = billGpsMap.get(row.id) || [];
+      const hasGps = billGps.length > 0;
+
+      let dispatchedFromGps = 0;
+      let returnedFromGps = 0;
+      let damagedFromGps = 0;
+      let missingFromGps = 0;
+
+      for (const gp of billGps) {
+        const items = gpItemsByGpId.get(gp.id) || [];
+        for (const item of items) {
+          dispatchedFromGps += Number(item.quantity_dispatched || 0);
+          returnedFromGps += Number(item.quantity_returned || 0);
+          damagedFromGps += Number(item.quantity_damaged || 0);
+          missingFromGps += Number(item.quantity_missing || 0);
+        }
+      }
+
+      const totalDispatched = dispatchedFromGps > 0
+        ? dispatchedFromGps
+        : (hasGps ? Number(bill.totalDispatched || 0) : 0);
+
+      bill.totalDispatched = totalDispatched;
+
+      if (returnedFromGps > 0 || (bill.totalReturnedGood || 0) === 0) {
+        bill.totalReturnedGood = Math.max(bill.totalReturnedGood || 0, returnedFromGps);
+      }
+      if (damagedFromGps > 0 || (bill.totalDamaged || 0) === 0) {
+        bill.totalDamaged = Math.max(bill.totalDamaged || 0, damagedFromGps);
+      }
+      if (missingFromGps > 0 || (bill.totalMissing || 0) === 0) {
+        bill.totalMissing = Math.max(bill.totalMissing || 0, missingFromGps);
+      }
+
+      bill.status = computeBillOperationalStatus({
+        currentStatus: bill.status,
+        totalDispatched,
+        hasGatePasses: hasGps,
+        totalReturnedGood: bill.totalReturnedGood,
+        totalDamaged: bill.totalDamaged,
+        totalMissing: bill.totalMissing,
+        incidents: bill.incidents,
+        documentLines: bill.documentLines,
+      });
+
+      return bill;
+    });
   }
 
-  async getBill(id: string): Promise<Bill | undefined> {
-    const { data, error } = await this.supabase
+  async getBill(id: string, options?: { forUpdate?: boolean }): Promise<Bill | undefined> {
+    let query = this.supabase
       .from("bills")
       .select("*")
-      .eq("id", id)
-      .maybeSingle();
+      .eq("id", id);
+    if (options?.forUpdate && typeof (query as any).forUpdate === "function") {
+      query = (query as any).forUpdate();
+    }
+    const { data, error } = await query.maybeSingle();
     if (error) throw new Error(`Supabase error fetching bill ${id}: ${error.message}`);
     if (!data) return undefined;
 
-    // Fetch bill items, branches, payments, and gate passes in PARALLEL to reduce cloud latency
-    const [
-      { data: items },
-      { data: branches },
-      { data: payments },
-      { data: gatePasses },
-    ] = await Promise.all([
-      this.supabase.from("bill_items").select("*").eq("bill_id", id).order("position", { ascending: true }),
-      this.supabase.from("bill_branches").select("*").eq("bill_id", id).order("section_order", { ascending: true }),
-      this.supabase.from("payments").select("*").eq("bill_id", id).eq("is_reversed", false),
-      this.supabase.from("gate_passes").select("id").eq("bill_id", id),
-    ]);
+    // Fetch bill items, branches, payments, and gate passes.
+    // In transaction mode (single PoolClient), execute sequentially to avoid socket pipeline warnings;
+    // in Supabase mode, execute in parallel to minimize network latency.
+    let items: any[] = [];
+    let branches: any[] = [];
+    let payments: any[] = [];
+    let gatePasses: any[] = [];
+
+    if (this.executorOverride) {
+      items = (await this.supabase.from("bill_items").select("*").eq("bill_id", id).order("position", { ascending: true })).data || [];
+      branches = (await this.supabase.from("bill_branches").select("*").eq("bill_id", id).order("section_order", { ascending: true })).data || [];
+      payments = (await this.supabase.from("payments").select("*").eq("bill_id", id).eq("is_reversed", false)).data || [];
+      gatePasses = (await this.supabase.from("gate_passes").select("id").eq("bill_id", id)).data || [];
+    } else {
+      const results = await Promise.all([
+        this.supabase.from("bill_items").select("*").eq("bill_id", id).order("position", { ascending: true }),
+        this.supabase.from("bill_branches").select("*").eq("bill_id", id).order("section_order", { ascending: true }),
+        this.supabase.from("payments").select("*").eq("bill_id", id).eq("is_reversed", false),
+        this.supabase.from("gate_passes").select("id").eq("bill_id", id),
+      ]);
+      items = results[0].data || [];
+      branches = results[1].data || [];
+      payments = results[2].data || [];
+      gatePasses = results[3].data || [];
+    }
 
     let totalReturnedGood = 0;
     let totalDamaged = 0;
@@ -1071,7 +1250,26 @@ export class SupabaseStore {
     let approvedMissingCharges = 0;
 
     const gpIds = (gatePasses || []).map((gp) => gp.id);
+    let totalDispatchedFromGps = 0;
+    let totalReturnedFromGps = 0;
+    let totalDamagedFromGps = 0;
+    let totalMissingFromGps = 0;
     if (gpIds.length > 0) {
+      const { data: allGpi } = await this.supabase
+        .from("gate_pass_items")
+        .select("quantity_dispatched, quantity_returned, quantity_damaged, quantity_missing")
+        .in("gate_pass_id", gpIds);
+      for (const gpi of allGpi || []) {
+        totalDispatchedFromGps += Number(gpi.quantity_dispatched || 0);
+        totalReturnedFromGps += Number(gpi.quantity_returned || 0);
+        totalDamagedFromGps += Number(gpi.quantity_damaged || 0);
+        totalMissingFromGps += Number(gpi.quantity_missing || 0);
+      }
+
+      let totalReturnedFromReturns = 0;
+      let totalDamagedFromReturns = 0;
+      let totalMissingFromReturns = 0;
+
       const { data: returnsData } = await this.supabase
         .from("returns")
         .select("*")
@@ -1080,30 +1278,38 @@ export class SupabaseStore {
       for (const ret of returnsData || []) {
         approvedDamageCharges += Number(ret.damage_charges || 0);
 
-        if (ret.notes) {
-          try {
-            const parsed = JSON.parse(ret.notes);
-            if (parsed.approvedMissingCharges) approvedMissingCharges += Number(parsed.approvedMissingCharges);
-            if (parsed.missingCharges) approvedMissingCharges += Number(parsed.missingCharges);
-            if (parsed.totalReturnedGood) totalReturnedGood += Number(parsed.totalReturnedGood);
-            if (parsed.totalDamaged) totalDamaged += Number(parsed.totalDamaged);
-            if (parsed.totalMissing) totalMissing += Number(parsed.totalMissing);
-          } catch {
-            // Not JSON
-          }
-        }
-
+        let hasItemQuantities = false;
         const { data: retItems } = await this.supabase
           .from("return_items")
           .select("*")
           .eq("return_id", ret.id);
 
         for (const ri of retItems || []) {
-          totalReturnedGood += Number(ri.quantity_returned_good || 0);
-          totalDamaged += Number(ri.quantity_damaged || 0);
-          totalMissing += Number(ri.quantity_missing || 0);
+          totalReturnedFromReturns += Number(ri.quantity_returned_good || 0);
+          totalDamagedFromReturns += Number(ri.quantity_damaged || 0);
+          totalMissingFromReturns += Number(ri.quantity_missing || 0);
+          hasItemQuantities = true;
+        }
+
+        if (ret.notes) {
+          try {
+            const parsed = JSON.parse(ret.notes);
+            if (parsed.approvedMissingCharges) approvedMissingCharges += Number(parsed.approvedMissingCharges);
+            if (parsed.missingCharges) approvedMissingCharges += Number(parsed.missingCharges);
+            if (!hasItemQuantities) {
+              if (parsed.totalReturnedGood) totalReturnedFromReturns += Number(parsed.totalReturnedGood);
+              if (parsed.totalDamaged) totalDamagedFromReturns += Number(parsed.totalDamaged);
+              if (parsed.totalMissing) totalMissingFromReturns += Number(parsed.totalMissing);
+            }
+          } catch {
+            // Not JSON
+          }
         }
       }
+
+      totalReturnedGood = Math.max(totalReturnedFromGps, totalReturnedFromReturns);
+      totalDamaged = Math.max(totalDamagedFromGps, totalDamagedFromReturns);
+      totalMissing = Math.max(totalMissingFromGps, totalMissingFromReturns);
     }
 
     const mappedItems = (items || []).map(mapBillItemFromRow);
@@ -1127,10 +1333,9 @@ export class SupabaseStore {
 
       for (const line of bill.documentLines) {
         if (line.entryType === "note") continue;
-        const lineDispatched = Math.max(0, Number(line.quantity || 0));
         const lineDamaged = Math.max(0, Number(line.quantityDamaged || 0));
         const lineMissing = Math.max(0, Number(line.quantityMissing || 0));
-        const lineGood = Math.max(0, lineDispatched - lineDamaged - lineMissing);
+        const lineGood = Math.max(0, Number(line.quantityReturnedGood ?? line.returnedGoodQuantity ?? 0));
 
         docGood += lineGood;
         docDamaged += lineDamaged;
@@ -1204,16 +1409,22 @@ export class SupabaseStore {
       }
     }
 
-    if (bill.status !== "CLOSED") {
-      const totalDispatched = bill.totalDispatched || (bill.documentLines || []).reduce((acc, l) => acc + (l.entryType === "note" ? 0 : Number(l.quantity || 0)), 0);
-      const accounted = (bill.totalReturnedGood || 0) + (bill.totalDamaged || 0) + (bill.totalMissing || 0);
-      const hasPending = (bill.incidents || []).some((i) => i.chargeApprovalStatus === "PENDING_DECISION");
+    const totalDispatched = totalDispatchedFromGps > 0
+      ? totalDispatchedFromGps
+      : (gpIds.length > 0 ? Number(bill.totalDispatched || 0) : 0);
+    bill.totalDispatched = totalDispatched;
 
-      if (totalDispatched > 0 && accounted >= totalDispatched) {
-        bill.status = hasPending ? "RETURN_INSPECTION" : "PENDING_SETTLEMENT";
-      } else if (accounted > 0) {
-        bill.status = "PARTIALLY_RETURNED";
-      }
+    if (bill.status !== "CLOSED" && bill.status !== "CANCELLED") {
+      bill.status = computeBillOperationalStatus({
+        currentStatus: bill.status,
+        totalDispatched,
+        hasGatePasses: gpIds.length > 0,
+        totalReturnedGood: bill.totalReturnedGood,
+        totalDamaged: bill.totalDamaged,
+        totalMissing: bill.totalMissing,
+        incidents: bill.incidents,
+        documentLines: bill.documentLines,
+      });
     }
 
     if (branches && branches.length > 0) {
@@ -1232,10 +1443,17 @@ export class SupabaseStore {
   }
 
   async createBill(data: any): Promise<Bill> {
-    const company = await this.getCompany(data.companyId);
+    if (this.executorOverride) {
+      return this.executeCreateBill(data);
+    }
+    return this.withTransaction((txStore) => txStore.executeCreateBill(data));
+  }
+
+  private async executeCreateBill(data: any): Promise<Bill> {
+    const company = await this.getCompany(data.companyId, { forUpdate: Boolean(this.executorOverride) });
     if (!company) throw new Error("Issuing company required");
 
-    const billNumber = await this.getNextDocumentNumber(data.companyId, "INVOICE");
+    const billNumber = data.billNumber || (await this.getNextDocumentNumber(data.companyId, "INVOICE"));
     const billId = toValidUuid(data.id);
 
     const calculatedDays =
@@ -1460,15 +1678,17 @@ export class SupabaseStore {
       const bItems = b.items && b.items.length > 0 ? b.items : flatItems;
       const bSubtotal = bItems.reduce((acc: number, it: any) => acc + (Number(it.amount || it.lineTotal) || 0), 0);
 
-      await this.supabase.from("bill_branches").insert({
+      const { error: branchErr } = await this.supabase.from("bill_branches").insert({
         id: branchId,
         bill_id: billId,
+        customer_branch_id: b.customerBranchId || null,
         branch_name: b.branchName || "Main Branch",
         delivery_address: b.branchAddress || data.customerAddress || "Tamil Nadu",
         section_order: bIdx + 1,
         branch_subtotal: bSubtotal || financials.subtotal,
         created_at: new Date().toISOString(),
       });
+      if (branchErr) throw new Error(`Supabase error inserting bill branch: ${branchErr.message}`);
 
       const branchBillItems: BillItem[] = [];
 
@@ -1555,8 +1775,10 @@ export class SupabaseStore {
         amount: initialAdvance,
         paymentDate: newBill.billDate,
         paymentMethod: data.paymentMethod || "CASH",
+        paymentNumber: data.paymentNumber,
         referenceNumber: `Advance for Bill ${newBill.billNumber}`,
         notes: `Initial advance recorded on bill creation`,
+        actor: data.actor,
       });
     }
 
@@ -1590,6 +1812,9 @@ export class SupabaseStore {
         });
       } catch (auditErr) {
         console.error("[createBill] Failed to record direct bill audit log:", auditErr);
+        if (this.executorOverride) {
+          throw auditErr;
+        }
       }
     }
 
@@ -1597,16 +1822,34 @@ export class SupabaseStore {
   }
 
   async convertQuotationToBill(quoteId: string, customData?: any, opts?: any): Promise<Bill> {
-    const quote = await this.getQuotation(quoteId);
+    if (this.executorOverride) {
+      return this.executeConvertQuotationToBill(quoteId, customData, opts);
+    }
+    return this.withTransaction((txStore) =>
+      txStore.executeConvertQuotationToBill(quoteId, customData, opts)
+    );
+  }
+
+  private async executeConvertQuotationToBill(quoteId: string, customData?: any, opts?: any): Promise<Bill> {
+    // 1. Lock the quotation row using a transaction-scoped SELECT ... FOR UPDATE
+    const quote = await this.getQuotation(quoteId, {
+      forUpdate: Boolean(this.executorOverride),
+    });
     if (!quote) throw new Error(`Quotation ${quoteId} not found`);
 
+    // 2. Re-read and validate its current status after acquiring the lock
     if (quote.status === "CONVERTED" || quote.convertedBillId) {
       throw new Error(`Quotation ${quote.quotationNumber} is already converted.`);
+    }
+
+    if (quote.status === "CANCELLED") {
+      throw new Error(`Quotation ${quote.quotationNumber} is cancelled and cannot be converted.`);
     }
 
     const company = await this.getCompany(quote.companyId);
     if (!company) throw new Error("Company not found");
 
+    // 4. Create the bill and all dependent records through the existing transactional bill-creation implementation
     const bill = await this.createBill({
       companyId: quote.companyId,
       customerId: quote.customerId,
@@ -1617,7 +1860,8 @@ export class SupabaseStore {
       rentalStartDate: quote.rentalStartDate,
       rentalEndDate: quote.rentalEndDate,
       rentalDays: quote.rentalDays,
-      documentLines: quote.documentLines || quote.items || [],
+      branches: quote.branches,
+      documentLines: (quote.documentLines && quote.documentLines.length > 0) ? quote.documentLines : (quote.items || []),
       transportCharges: quote.transportCharges,
       loadingCharges: quote.loadingCharges,
       laborCharges: quote.laborCharges,
@@ -1631,7 +1875,7 @@ export class SupabaseStore {
       ...customData,
     });
 
-    // Mark quotation as converted
+    // 5. Update quotation status to CONVERTED
     await this.updateQuotation(quoteId, {
       status: "CONVERTED",
       convertedBillId: bill.id,
@@ -1639,6 +1883,7 @@ export class SupabaseStore {
       convertedAt: new Date().toISOString(),
     });
 
+    // 6. Write required audit records
     try {
       const resolvedActor = this.resolveActor(opts?.actor);
       // 1. Audit event on Quotation
@@ -1677,6 +1922,9 @@ export class SupabaseStore {
       });
     } catch (auditErr) {
       console.error("[convertQuotationToBill] Failed to record conversion audit logs:", auditErr);
+      if (this.executorOverride) {
+        throw auditErr;
+      }
     }
 
     return bill;
@@ -1695,6 +1943,7 @@ export class SupabaseStore {
 
     if (error) throw new Error(`Supabase error updating bill ${id}: ${error.message}`);
     const mapped = mapBillFromRow(updated);
+    if (updates.status !== undefined) mapped.status = updates.status;
     if (updates.additionalRentalCharges !== undefined) mapped.additionalRentalCharges = updates.additionalRentalCharges;
     if (updates.additionalRentalDays !== undefined) mapped.additionalRentalDays = updates.additionalRentalDays;
     if (updates.expectedReturnDate !== undefined) mapped.expectedReturnDate = updates.expectedReturnDate;
@@ -1711,7 +1960,14 @@ export class SupabaseStore {
   }
 
   async saveBillWorkspaceChanges(billId: string, payload: any, actorId?: any): Promise<Bill> {
-    const bill = await this.getBill(billId);
+    if (this.executorOverride) {
+      return this.executeSaveBillWorkspaceChanges(billId, payload, actorId);
+    }
+    return this.withTransaction((txStore) => txStore.executeSaveBillWorkspaceChanges(billId, payload, actorId));
+  }
+
+  private async executeSaveBillWorkspaceChanges(billId: string, payload: any, actorId?: any): Promise<Bill> {
+    const bill = await this.getBill(billId, { forUpdate: Boolean(this.executorOverride) });
     if (!bill) throw new Error(`Bill ${billId} not found`);
 
     if (bill.status === "CLOSED") {
@@ -1851,7 +2107,18 @@ export class SupabaseStore {
           const deltaRented = (returnedGood + damaged + missing) - (prevGood + prevDamaged + prevMissing);
 
           if (deltaGood !== 0 || deltaDamaged !== 0 || deltaMissing !== 0 || deltaRented !== 0) {
-            const prod = await this.getProduct(raw.productId);
+            // Guard against bypassing formal return recording for dispatched bills
+            const { data: gps } = await this.supabase
+              .from("gate_passes")
+              .select("id")
+              .eq("bill_id", billId);
+            if (gps && gps.length > 0) {
+              throw new Error(
+                `Cannot alter physical return stock via workspace changes for dispatched Bill #${bill.billNumber}. Use formal Return Recording (/api/bills/${billId}/returns).`
+              );
+            }
+
+            const prod = await this.getProduct(raw.productId, { forUpdate: Boolean(this.executorOverride) });
             if (prod) {
               const newAvail = Math.max(0, (prod.availableQuantity || 0) + deltaGood);
               const newRented = Math.max(0, (prod.rentedQuantity || 0) - deltaRented);
@@ -2003,6 +2270,9 @@ export class SupabaseStore {
       });
     } catch (auditErr) {
       console.error("[saveBillWorkspaceChanges] Failed to record audit log:", auditErr);
+      if (this.executorOverride) {
+        throw auditErr;
+      }
     }
 
     return updated;
@@ -2305,6 +2575,9 @@ export class SupabaseStore {
     this.recalculateBillFinancials(bill, payments);
 
     const updatedBill = await this.updateBill(billId, bill, actor);
+    updatedBill.status = bill.status;
+    updatedBill.totalDispatched = totalDispatched;
+    updatedBill.incidents = bill.incidents;
 
     await this.recordAuditLog({
       entityType: "BILL",
@@ -2343,52 +2616,247 @@ export class SupabaseStore {
     data: any,
     actorId?: any
   ): Promise<{ bill: Bill; returnRecord: ReturnRecord }> {
-    const bill = await this.getBill(billId);
+    if (this.executorOverride) {
+      return this.executeRecordBillReturn(billId, data, actorId);
+    }
+    return this.withTransaction((txStore) => txStore.executeRecordBillReturn(billId, data, actorId));
+  }
+
+  private async executeRecordBillReturn(
+    billId: string,
+    data: any,
+    actorId?: any
+  ): Promise<{ bill: Bill; returnRecord: ReturnRecord }> {
+    // 1. Lock and re-read bill before validating status
+    const bill = await this.getBill(billId, { forUpdate: Boolean(this.executorOverride) });
     if (!bill) throw new Error("Bill not found");
     if (bill.status === "CLOSED") {
       throw new Error("Cannot record return for a Closed bill.");
     }
+    if (bill.status === "CANCELLED") {
+      throw new Error("Cannot record return for a Cancelled bill.");
+    }
 
-    const returnNumber = `RET-${Date.now().toString().slice(-6)}`;
-    const retId = crypto.randomUUID();
+    // 2. Lock company row in deterministic order (Bill -> Company -> GatePass -> Products)
+    // to prevent deadlocks with concurrent operations (such as dispatches) that lock Company before Products.
+    if (bill.companyId) {
+      await this.getCompany(bill.companyId, { forUpdate: Boolean(this.executorOverride) });
+    }
+
+    // 2. Validate input items
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error("No items provided for return inspection.");
+    }
+
+    // 3. Locate existing gate pass(es) for this bill
+    let allBillGpsQuery = this.supabase
+      .from("gate_passes")
+      .select("*")
+      .eq("bill_id", billId)
+      .order("created_at", { ascending: false });
+    if (this.executorOverride) {
+      allBillGpsQuery = (allBillGpsQuery as any).forUpdate();
+    }
+    const { data: gps, error: gpErr } = await allBillGpsQuery;
+    if (gpErr) throw new Error(`Supabase error fetching gate passes: ${gpErr.message}`);
+
+    let allBillGps = gps || [];
+    if (allBillGps.length === 0) {
+      if (this.executorOverride) {
+        throw new Error(`Cannot record return: No dispatch or gate pass found for Bill #${bill.billNumber}.`);
+      } else {
+        // Backward-compatible fallback for legacy Supabase mode
+        const gp = await this.createGatePass({
+          companyId: bill.companyId,
+          customerId: bill.customerId,
+          customerName: bill.customerName,
+          destinationBranch: "Main Site",
+          destinationAddress: bill.customerAddress || "Tamil Nadu",
+          billId: bill.id,
+          expectedReturnDate: bill.expectedReturnDate || (data.returnDate || new Date().toISOString().split("T")[0]),
+        });
+        allBillGps = [gp];
+      }
+    }
+
+    if (data.gatePassId) {
+      const found = allBillGps.find((gp: any) => gp.id === data.gatePassId);
+      if (!found) {
+        throw new Error(`Gate pass ${data.gatePassId} not found or does not belong to Bill #${bill.billNumber}.`);
+      }
+    }
+
+    // 4. Lock gate pass items across all gate passes for this bill
+    const allBillGpIds = allBillGps.map((gp: any) => gp.id);
+    let gpItemsQuery = this.supabase
+      .from("gate_pass_items")
+      .select("*")
+      .in("gate_pass_id", allBillGpIds);
+    if (this.executorOverride) {
+      gpItemsQuery = (gpItemsQuery as any).forUpdate();
+    }
+    const { data: fetchedGpItems, error: gpItemsErr } = await gpItemsQuery;
+    if (gpItemsErr) throw new Error(`Supabase error fetching gate pass items: ${gpItemsErr.message}`);
+    const allBillGpItems = fetchedGpItems || [];
+
+    // Filter candidate items if specific gatePassId was requested
+    const candidateGpItems = data.gatePassId
+      ? allBillGpItems.filter((gpi: any) => gpi.gate_pass_id === data.gatePassId)
+      : allBillGpItems;
+
+    // 5. Resolve each requested return line to the correct dispatched gate-pass item
+    const resolvedLines: {
+      it: any;
+      matchingGpItem: any;
+      good: number;
+      damaged: number;
+      missing: number;
+      totalReturning: number;
+    }[] = [];
+
+    for (const it of (data.items || [])) {
+      if (it.entryType === "note") continue;
+
+      const damaged = Number(it.damagedQuantity ?? it.quantityDamaged ?? 0);
+      const missing = Number(it.missingQuantity ?? it.quantityMissing ?? 0);
+      let good = 0;
+      if (it.quantityPhysicallyReturned !== undefined || it.physicalReturned !== undefined) {
+        const physical = Number(it.quantityPhysicallyReturned ?? it.physicalReturned);
+        good = Math.max(0, physical - damaged);
+      } else {
+        good = Number(it.goodQuantity ?? it.quantityReturnedGood ?? it.returnedGoodQuantity ?? 0);
+      }
+
+      // Check non-negative and finite quantities
+      if (good < 0 || damaged < 0 || missing < 0 || !Number.isFinite(good) || !Number.isFinite(damaged) || !Number.isFinite(missing)) {
+        throw new Error(`Negative or invalid return quantities are rejected for item "${it.itemName || it.productId}".`);
+      }
+
+      const totalReturning = good + damaged + missing;
+      if (totalReturning <= 0) {
+        throw new Error(`Return quantity for item "${it.itemName || it.productId}" must be greater than zero.`);
+      }
+
+      // Match against candidate gate-pass items
+      let matchingGp: any = null;
+      if (it.gatePassItemId) {
+        matchingGp = candidateGpItems.find((gpi: any) => gpi.id === it.gatePassItemId);
+        if (!matchingGp) {
+          throw new Error(`Item "${it.itemName || it.productId}" specifies unknown or invalid gate pass item ID "${it.gatePassItemId}".`);
+        }
+      } else if (it.id && candidateGpItems.some((gpi: any) => gpi.id === it.id)) {
+        matchingGp = candidateGpItems.find((gpi: any) => gpi.id === it.id);
+      } else if (it.productId) {
+        const matches = candidateGpItems.filter((gpi: any) => gpi.product_id === it.productId);
+        if (matches.length === 0) {
+          throw new Error(`Item "${it.itemName || it.productId}" does not match any dispatched gate pass line.`);
+        }
+        if (matches.length > 1) {
+          throw new Error(`Ambiguous return line for product "${it.itemName || it.productId}": multiple dispatched gate pass lines match. Please provide gatePassItemId.`);
+        }
+        matchingGp = matches[0];
+      } else {
+        throw new Error(`Return line "${it.itemName || "unknown"}" missing valid product ID or gate pass item ID.`);
+      }
+
+      resolvedLines.push({
+        it,
+        matchingGpItem: matchingGp,
+        good,
+        damaged,
+        missing,
+        totalReturning,
+      });
+    }
+
+    if (resolvedLines.length === 0) {
+      throw new Error("No valid returnable item lines found in return payload.");
+    }
+
+    // Verify all return lines belong to a single gate pass (a Return header represents one gate pass receipt)
+    const referencedGpIds = Array.from(new Set(resolvedLines.map((rl) => rl.matchingGpItem.gate_pass_id)));
+    if (referencedGpIds.length > 1) {
+      throw new Error(`Return lines span multiple gate passes (${referencedGpIds.join(", ")}). Please submit separate return records per gate pass.`);
+    }
+    const gatePassId = referencedGpIds[0];
+    const gatePass = allBillGps.find((gp: any) => gp.id === gatePassId);
+
+    // 6. Aggregate good + damaged + missing per gate-pass item before validating against outstanding quantity
+    const aggregationMap = new Map<string, { matchingGpItem: any; totalReturning: number }>();
+    for (const rl of resolvedLines) {
+      const gpiId = rl.matchingGpItem.id;
+      const existing = aggregationMap.get(gpiId) || { matchingGpItem: rl.matchingGpItem, totalReturning: 0 };
+      existing.totalReturning += rl.totalReturning;
+      aggregationMap.set(gpiId, existing);
+    }
+
+    for (const agg of aggregationMap.values()) {
+      const { matchingGpItem, totalReturning } = agg;
+      const dispatchedQty = Number(matchingGpItem.quantity_dispatched || 0);
+      const prevAccounted =
+        Number(matchingGpItem.quantity_returned || 0) +
+        Number(matchingGpItem.quantity_damaged || 0) +
+        Number(matchingGpItem.quantity_missing || 0);
+      const outstanding = Math.max(0, dispatchedQty - prevAccounted);
+
+      if (totalReturning > outstanding) {
+        throw new Error(
+          `Over-return rejected: requested return of ${totalReturning} units for "${matchingGpItem.item_name}" exceeds outstanding dispatched quantity of ${outstanding}.`
+        );
+      }
+    }
+
+    // 7. Deterministic Product Row Locking (Alphabetical by product_id)
+    const uniqueProductIds: string[] = Array.from(
+      new Set<string>(resolvedLines.filter((rl) => rl.it.productId).map((rl) => String(rl.it.productId)))
+    ).sort();
+    const productMap = new Map<string, Product>();
+    for (const pId of uniqueProductIds) {
+      const prod = await this.getProduct(pId, { forUpdate: Boolean(this.executorOverride) });
+      if (!prod) {
+        throw new Error(`Product ${pId} not found for return inspection.`);
+      }
+      productMap.set(pId, prod);
+    }
+
+    // 8. Generate Return Header Details
+    const returnNumber = data.returnNumber || `RET-${Date.now().toString().slice(-6)}`;
+    const retId = (data.id && typeof data.id === "string" && data.id.trim()) ? data.id.trim() : toValidUuid(data.id);
     const returnDate = data.returnDate || new Date().toISOString().split("T")[0];
+    const actor = this.resolveActor(actorId || data.actor);
 
     let newGoodTotal = 0;
     let newDamagedTotal = 0;
     let newMissingTotal = 0;
-
     const returnItems: any[] = [];
+    const retItemRows: any[] = [];
 
-    for (const it of (data.items || [])) {
-      if (it.entryType === "note") continue;
-      const damaged = Number(it.damagedQuantity ?? it.quantityDamaged ?? 0) || 0;
-      const missing = Number(it.missingQuantity ?? it.quantityMissing ?? 0) || 0;
-      let good = 0;
-      if (it.quantityPhysicallyReturned !== undefined || it.physicalReturned !== undefined) {
-        const physical = Number(it.quantityPhysicallyReturned ?? it.physicalReturned) || 0;
-        good = Math.max(0, physical - damaged);
-      } else {
-        good = Number(it.goodQuantity ?? it.quantityReturnedGood ?? it.returnedGoodQuantity ?? 0) || 0;
-      }
-      const itemTotalReturning = good + damaged + missing;
+    // 9. Execute Product Stock Updates & Inventory Movements
+    for (const vl of resolvedLines) {
+      const { it, matchingGpItem, good, damaged, missing, totalReturning } = vl;
 
       newGoodTotal += good;
       newDamagedTotal += damaged;
       newMissingTotal += missing;
 
       if (it.productId) {
-        const prod = await this.getProduct(it.productId);
+        const prod = productMap.get(it.productId);
         if (prod) {
           const newAvail = (prod.availableQuantity || 0) + good;
+          const newRented = Math.max(0, (prod.rentedQuantity || 0) - totalReturning);
+          const newDamaged = (prod.damagedQuantity || 0) + damaged;
+          const newMissing = (prod.missingQuantity || 0) + missing;
+
           await this.updateProduct(it.productId, {
-            rentedQuantity: Math.max(0, (prod.rentedQuantity || 0) - itemTotalReturning),
             availableQuantity: newAvail,
-            damagedQuantity: (prod.damagedQuantity || 0) + damaged,
-            missingQuantity: (prod.missingQuantity || 0) + missing,
+            rentedQuantity: newRented,
+            damagedQuantity: newDamaged,
+            missingQuantity: newMissing,
           });
 
+          // Inventory Movement: RETURN_GOOD
           if (good > 0) {
-            await this.supabase.from("inventory_movements").insert({
+            const { error: moveErr } = await this.supabase.from("inventory_movements").insert({
               product_id: it.productId,
               movement_type: "RETURN_GOOD",
               quantity_change: good,
@@ -2397,9 +2865,12 @@ export class SupabaseStore {
               balance_after: newAvail,
               notes: `Returned ${good} good condition units under Return ${returnNumber}`,
             });
+            if (moveErr) throw new Error(`Supabase error inserting inventory movement: ${moveErr.message}`);
           }
+
+          // Inventory Movement: RETURN_DAMAGED
           if (damaged > 0) {
-            await this.supabase.from("inventory_movements").insert({
+            const { error: moveErr } = await this.supabase.from("inventory_movements").insert({
               product_id: it.productId,
               movement_type: "RETURN_DAMAGED",
               quantity_change: damaged,
@@ -2408,9 +2879,12 @@ export class SupabaseStore {
               balance_after: newAvail,
               notes: `Returned ${damaged} damaged units under Return ${returnNumber}`,
             });
+            if (moveErr) throw new Error(`Supabase error inserting inventory movement: ${moveErr.message}`);
           }
+
+          // Inventory Movement: RETURN_MISSING
           if (missing > 0) {
-            await this.supabase.from("inventory_movements").insert({
+            const { error: moveErr } = await this.supabase.from("inventory_movements").insert({
               product_id: it.productId,
               movement_type: "RETURN_MISSING",
               quantity_change: -missing,
@@ -2419,10 +2893,27 @@ export class SupabaseStore {
               balance_after: newAvail,
               notes: `${missing} units reported missing under Return ${returnNumber}`,
             });
+            if (moveErr) throw new Error(`Supabase error inserting inventory movement: ${moveErr.message}`);
           }
         }
       }
 
+      // Update gate_pass_items record
+      matchingGpItem.quantity_returned = Number(matchingGpItem.quantity_returned || 0) + good;
+      matchingGpItem.quantity_damaged = Number(matchingGpItem.quantity_damaged || 0) + damaged;
+      matchingGpItem.quantity_missing = Number(matchingGpItem.quantity_missing || 0) + missing;
+
+      const { error: gpiUpdateErr } = await this.supabase
+        .from("gate_pass_items")
+        .update({
+          quantity_returned: matchingGpItem.quantity_returned,
+          quantity_damaged: matchingGpItem.quantity_damaged,
+          quantity_missing: matchingGpItem.quantity_missing,
+        })
+        .eq("id", matchingGpItem.id);
+      if (gpiUpdateErr) throw new Error(`Supabase error updating gate pass item: ${gpiUpdateErr.message}`);
+
+      // Handle Damage Incident on Bill
       if (damaged > 0) {
         if (!bill.incidents) bill.incidents = [];
         const rawDecision = it.damageChargeDecision || it.chargeApprovalStatus;
@@ -2432,13 +2923,13 @@ export class SupabaseStore {
             ? "ADD_CHARGE"
             : rawDecision === "NO_CHARGE" || rawDecision === "WAIVE" || rawDecision === "WAIVED"
             ? "NO_CHARGE"
-            : (damageAmount > 0 ? "ADD_CHARGE" : "PENDING_DECISION");
+            : "PENDING_DECISION";
 
         const incident: DamageMissingIncident = {
           id: crypto.randomUUID(),
           billId,
           productId: it.productId,
-          productName: it.itemName || "Rental Product",
+          productName: it.itemName || matchingGpItem.item_name || "Rental Product",
           quantityAffected: damaged,
           type: "DAMAGED",
           description: it.damageDescription || it.damageNotes || "Damaged during rental",
@@ -2453,6 +2944,7 @@ export class SupabaseStore {
         }
       }
 
+      // Handle Missing Incident on Bill
       if (missing > 0) {
         if (!bill.incidents) bill.incidents = [];
         const rawDecision = it.missingChargeDecision || it.chargeApprovalStatus;
@@ -2462,13 +2954,13 @@ export class SupabaseStore {
             ? "ADD_CHARGE"
             : rawDecision === "NO_CHARGE" || rawDecision === "WAIVE" || rawDecision === "WAIVED"
             ? "NO_CHARGE"
-            : (missingAmount > 0 ? "ADD_CHARGE" : "PENDING_DECISION");
+            : "PENDING_DECISION";
 
         const incident: DamageMissingIncident = {
           id: crypto.randomUUID(),
           billId,
           productId: it.productId,
-          productName: it.itemName || "Rental Product",
+          productName: it.itemName || matchingGpItem.item_name || "Rental Product",
           quantityAffected: missing,
           type: "MISSING",
           description: it.missingDescription || it.missingNotes || "Missing upon return inspection",
@@ -2483,6 +2975,7 @@ export class SupabaseStore {
         }
       }
 
+      // Update bill.branches items
       for (const branch of (bill.branches || [])) {
         const bItem = branch.items.find((bi) => bi.id === it.id || bi.productId === it.productId);
         if (bItem) {
@@ -2495,12 +2988,13 @@ export class SupabaseStore {
         }
       }
 
+      const returnItemId = (it.id && typeof it.id === "string" && it.id.trim()) ? it.id.trim() : toValidUuid(it.id);
       returnItems.push({
-        id: crypto.randomUUID(),
+        id: returnItemId,
         returnId: retId,
         productId: it.productId,
-        itemName: it.itemName,
-        sizeSpec: it.sizeSpec || "",
+        itemName: it.itemName || matchingGpItem.item_name,
+        sizeSpec: it.sizeSpec || matchingGpItem.size_spec || "",
         quantityReturnedGood: good,
         quantityDamaged: damaged,
         quantityMissing: missing,
@@ -2510,71 +3004,52 @@ export class SupabaseStore {
         missingCharge: missing > 0 ? Number(it.missingChargeAmount || it.missingCharge || 0) : 0,
         conditionStatus: damaged > 0 ? "DAMAGED" : missing > 0 ? "MISSING" : "GOOD",
       });
+
+      retItemRows.push({
+        id: returnItemId,
+        return_id: retId,
+        product_id: it.productId,
+        gate_pass_item_id: matchingGpItem.id,
+        item_name: it.itemName || matchingGpItem.item_name,
+        quantity_expected: Number(matchingGpItem.quantity_dispatched || 0),
+        quantity_returned_good: good,
+        quantity_damaged: damaged,
+        quantity_missing: missing,
+        damage_notes: it.damageNotes || null,
+      });
     }
 
-    bill.totalReturnedGood = (bill.totalReturnedGood || 0) + newGoodTotal;
-    bill.totalDamaged = (bill.totalDamaged || 0) + newDamagedTotal;
-    bill.totalMissing = (bill.totalMissing || 0) + newMissingTotal;
-    bill.actualReturnDate = returnDate;
+    // 9. Update Gate Pass Status
+    const targetGpItems = allBillGpItems.filter((gpi: any) => gpi.gate_pass_id === gatePassId);
+    const allGpItemsReturned = targetGpItems.every(
+      (gpi: any) =>
+        Number(gpi.quantity_returned || 0) +
+          Number(gpi.quantity_damaged || 0) +
+          Number(gpi.quantity_missing || 0) >=
+        Number(gpi.quantity_dispatched || 0)
+    );
+    const newGpStatus = allGpItemsReturned ? "RETURNED" : "PARTIALLY_RETURNED";
+    const { error: gpUpdateErr } = await this.supabase
+      .from("gate_passes")
+      .update({ status: newGpStatus })
+      .eq("id", gatePassId);
+    if (gpUpdateErr) throw new Error(`Supabase error updating gate pass status: ${gpUpdateErr.message}`);
 
-    const totalDispatched = bill.totalDispatched || 0;
-    const totalAccounted = bill.totalReturnedGood + bill.totalDamaged + bill.totalMissing;
-    const hasPendingIncidents = bill.incidents?.some((i) => i.chargeApprovalStatus === "PENDING_DECISION");
-
-    if (totalAccounted >= totalDispatched && totalDispatched > 0) {
-      if (hasPendingIncidents) {
-        bill.status = "RETURN_INSPECTION";
-      } else {
-        bill.status = "PENDING_SETTLEMENT";
-      }
-    } else if (totalAccounted > 0) {
-      bill.status = "PARTIALLY_RETURNED";
-    }
-
-    const payments = await this.getPayments(billId);
-    this.recalculateBillFinancials(bill, payments);
-
-    const actor = this.resolveActor(actorId || data.actor);
-
-    // Ensure a valid gate pass exists for this return
-    let gatePassId = data.gatePassId;
-    if (!gatePassId) {
-      const { data: gps } = await this.supabase
-        .from("gate_passes")
-        .select("id")
-        .eq("bill_id", billId)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (gps && gps.length > 0) {
-        gatePassId = gps[0].id;
-      } else {
-        const gp = await this.createGatePass({
-          companyId: bill.companyId,
-          customerId: bill.customerId,
-          customerName: bill.customerName,
-          destinationBranch: "Main Site",
-          destinationAddress: bill.customerAddress || "Tamil Nadu",
-          billId: bill.id,
-          expectedReturnDate: bill.expectedReturnDate || returnDate,
-        });
-        gatePassId = gp.id;
-      }
-    }
-
+    // 10. Insert Return Header Record
     const returnRecord: ReturnRecord = {
       id: retId,
       returnNumber,
       gatePassId,
       companyId: bill.companyId,
-      customerId: bill.customerId,
+      customerId: bill.customerId || "WALK_IN",
       customerName: bill.customerName,
       returnDate,
-      inspectedBy: data.receivedBy || actor.name || "Store Executive",
+      inspectedBy: data.inspectedBy || data.receivedBy || actor.name || "Store Executive",
       damageCharges: bill.approvedDamageCharges || 0,
       lateFeeCharges: bill.lateFeeCharges || 0,
       depositAdjustment: bill.depositAdjustment || 0,
       items: returnItems,
-      notes: JSON.stringify({
+      notes: typeof data.notes === "string" ? data.notes : JSON.stringify({
         userNotes: data.notes || null,
         totalReturnedGood: newGoodTotal,
         totalDamaged: newDamagedTotal,
@@ -2585,64 +3060,90 @@ export class SupabaseStore {
       createdAt: new Date().toISOString(),
     };
 
-    await this.recordReturn(returnRecord);
+    const retRow = mapReturnRecordToRow(returnRecord);
+    const { error: retErr } = await this.supabase.from("returns").insert(retRow);
+    if (retErr) throw new Error(`Supabase error recording return: ${retErr.message}`);
 
-    // Insert into return_items if matching gate pass items are present
-    if (gatePassId && returnItems.length > 0) {
-      const { data: gpItems } = await this.supabase
-        .from("gate_pass_items")
-        .select("id, product_id")
-        .eq("gate_pass_id", gatePassId);
-
-      if (gpItems && gpItems.length > 0) {
-        const retItemRows = [];
-        for (const it of returnItems) {
-          if (!it.productId) continue;
-          const matchingGp = gpItems.find((gpi: any) => gpi.product_id === it.productId);
-          if (matchingGp) {
-            retItemRows.push({
-              id: it.id,
-              return_id: retId,
-              product_id: it.productId,
-              gate_pass_item_id: matchingGp.id,
-              item_name: it.itemName,
-              quantity_expected: it.quantityReturnedGood + it.quantityDamaged + it.quantityMissing,
-              quantity_returned_good: it.quantityReturnedGood,
-              quantity_damaged: it.quantityDamaged,
-              quantity_missing: it.quantityMissing,
-              damage_notes: it.damageNotes || null,
-            });
-          }
-        }
-        if (retItemRows.length > 0) {
-          await this.supabase.from("return_items").insert(retItemRows);
-        }
-      }
+    // 11. Insert Return Items
+    if (retItemRows.length > 0) {
+      const { error: itemsErr } = await this.supabase.from("return_items").insert(retItemRows);
+      if (itemsErr) throw new Error(`Supabase error inserting return items: ${itemsErr.message}`);
     }
 
+    // 12. Update Bill Return Metrics, Status & Recalculate Financials
+    bill.totalReturnedGood = (bill.totalReturnedGood || 0) + newGoodTotal;
+    bill.totalDamaged = (bill.totalDamaged || 0) + newDamagedTotal;
+    bill.totalMissing = (bill.totalMissing || 0) + newMissingTotal;
+    bill.actualReturnDate = returnDate;
+
+    // Derive authoritative totalDispatched from ALL gate pass items for this bill
+    const totalDispatched = allBillGpItems.reduce(
+      (sum: number, gpi: any) => sum + Number(gpi.quantity_dispatched || 0),
+      0
+    );
+    bill.totalDispatched = totalDispatched;
+
+    // Total accounted across all gate passes for this bill
+    const totalAccounted = allBillGpItems.reduce(
+      (sum: number, gpi: any) =>
+        sum +
+        Number(gpi.quantity_returned || 0) +
+        Number(gpi.quantity_damaged || 0) +
+        Number(gpi.quantity_missing || 0),
+      0
+    );
+
+    const hasPendingIncidents = (bill.incidents || []).some(
+      (i) => i.chargeApprovalStatus === "PENDING_DECISION"
+    );
+
+    if (totalDispatched > 0 && totalAccounted >= totalDispatched) {
+      bill.status = hasPendingIncidents ? "RETURN_INSPECTION" : "PENDING_SETTLEMENT";
+    } else if (totalAccounted > 0) {
+      bill.status = "PARTIALLY_RETURNED";
+    } else {
+      bill.status = "ACTIVE";
+    }
+
+    const payments = await this.getPayments(billId);
+    this.recalculateBillFinancials(bill, payments);
+
     const updatedBill = await this.updateBill(billId, bill, actor);
+    updatedBill.status = bill.status;
+    updatedBill.totalDispatched = totalDispatched;
     updatedBill.totalReturnedGood = bill.totalReturnedGood;
     updatedBill.totalDamaged = bill.totalDamaged;
     updatedBill.totalMissing = bill.totalMissing;
     updatedBill.approvedDamageCharges = bill.approvedDamageCharges;
     updatedBill.approvedMissingCharges = bill.approvedMissingCharges;
+    updatedBill.incidents = bill.incidents;
 
-    await this.recordAuditLog({
-      entityType: "BILL",
-      entityId: bill.id,
-      entityNumber: bill.billNumber,
-      customerName: bill.customerName,
-      action: "RETURN_RECORDED",
-      actionLabel: `Return Recorded (${returnNumber})`,
-      actor,
-      details: {
-        returnNumber,
-        good: newGoodTotal,
-        damaged: newDamagedTotal,
-        missing: newMissingTotal,
-        newStatus: bill.status,
-      },
-    });
+    // 13. Required Audit Log
+    try {
+      await this.recordAuditLog({
+        entityType: "BILL",
+        entityId: bill.id,
+        entityNumber: bill.billNumber,
+        customerName: bill.customerName,
+        action: "RETURN_RECORDED",
+        actionLabel: `Return Recorded (${returnNumber})`,
+        actor,
+        details: {
+          returnNumber,
+          good: newGoodTotal,
+          damaged: newDamagedTotal,
+          missing: newMissingTotal,
+          newStatus: bill.status,
+          gatePassId,
+          gatePassStatus: newGpStatus,
+        },
+      });
+    } catch (auditErr) {
+      console.error("[recordBillReturn] Failed to record return audit log:", auditErr);
+      if (this.executorOverride) {
+        throw auditErr;
+      }
+    }
 
     return { bill: updatedBill, returnRecord, id: retId } as any;
   }
@@ -2665,12 +3166,24 @@ export class SupabaseStore {
     const id = data.id || crypto.randomUUID();
     const paymentNumber = data.paymentNumber || `RCPT-${Date.now().toString().slice(-6)}`;
 
+    let customerId = data.customerId;
+    let customerName = data.customerName;
+    if (!customerId && data.billId) {
+      const b = await this.getBill(data.billId);
+      if (b) {
+        customerId = b.customerId;
+        customerName = customerName || b.customerName;
+      }
+    }
+
     const paymentType = data.paymentType || "RENTAL_PAYMENT";
     const paymentMethod = data.paymentMethod || "CASH";
     const newPayment: Payment = {
       ...data,
       id,
       paymentNumber,
+      customerId,
+      customerName,
       paymentType,
       paymentMethod,
       amount: Number(data.amount || 0),
@@ -2732,6 +3245,9 @@ export class SupabaseStore {
           });
         } catch (auditErr) {
           console.error("[recordPayment] Failed to record payment audit log:", auditErr);
+          if (this.executorOverride) {
+            throw auditErr;
+          }
         }
       }
     }
@@ -2761,6 +3277,26 @@ export class SupabaseStore {
     return gatePasses;
   }
 
+  async getGatePassesByBillId(billId: string): Promise<GatePass[]> {
+    const { data, error } = await this.supabase
+      .from("gate_passes")
+      .select("*")
+      .eq("bill_id", billId)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(`Supabase error fetching gate passes for bill ${billId}: ${error.message}`);
+
+    const gatePasses: GatePass[] = [];
+    for (const gpRow of data || []) {
+      const { data: itemRows } = await this.supabase
+        .from("gate_pass_items")
+        .select("*")
+        .eq("gate_pass_id", gpRow.id);
+      const items = (itemRows || []).map(mapGatePassItemFromRow);
+      gatePasses.push(mapGatePassFromRow(gpRow, items));
+    }
+    return gatePasses;
+  }
+
   async getGatePass(id: string): Promise<GatePass | null> {
     const { data, error } = await this.supabase
       .from("gate_passes")
@@ -2778,24 +3314,72 @@ export class SupabaseStore {
   }
 
   async createGatePass(data: any): Promise<GatePass> {
-    const id = data.id || crypto.randomUUID();
+    if (this.executorOverride) {
+      return this.executeCreateGatePass(data);
+    }
+    return this.withTransaction((txStore) => txStore.executeCreateGatePass(data));
+  }
+
+  private async executeCreateGatePass(data: any): Promise<GatePass> {
+    // 1. If billId is present, lock the bill row and validate dispatch eligibility & duplicates
+    let bill: Bill | undefined;
+    if (data.billId) {
+      bill = await this.getBill(data.billId, { forUpdate: Boolean(this.executorOverride) });
+      if (!bill) throw new Error(`Bill ${data.billId} not found`);
+
+      if (bill.status === "CANCELLED") {
+        throw new Error(`Bill #${bill.billNumber} is cancelled and cannot be dispatched.`);
+      }
+
+      const existingGps = await this.getGatePassesByBillId(data.billId);
+      if (existingGps && existingGps.length > 0) {
+        const actor = this.resolveActor(data.actor);
+        const role = String(actor.role || "").toUpperCase();
+        const isElevated = role === "ADMIN" || role === "SUPER_ADMIN" || role === "OWNER";
+        const isExplicitTrue = data.allowAdditionalDispatch === true;
+
+        if (!isExplicitTrue || !isElevated) {
+          const firstGpNum = existingGps[0].gatePassNumber || (existingGps[0] as any).gate_pass_number || existingGps[0].id;
+          throw new Error(
+            `Bill #${bill.billNumber} has already been dispatched under Gate Pass ${firstGpNum}. Duplicate dispatch rejected. Additional dispatches require ADMIN or OWNER authorization with explicit allowAdditionalDispatch flag.`
+          );
+        }
+      }
+    }
+
+    // 2. Lock company row and generate unique gate pass number
+    const company = await this.getCompany(data.companyId, { forUpdate: Boolean(this.executorOverride) });
+    if (!company) throw new Error("Issuing company required");
+
     const gatePassNumber = data.gatePassNumber || (await this.getNextDocumentNumber(data.companyId, "GATE_PASS"));
-    const company = await this.getCompany(data.companyId);
+    const id = toValidUuid(data.id);
+
+    const customerId = data.customerId || bill?.customerId || "WALK_IN";
+    let customerName = data.customerName || bill?.customerName;
+    if (!customerName && data.customerId) {
+      const cust = await this.getCustomer(data.customerId);
+      if (cust) customerName = cust.name;
+    }
+    if (!customerName) {
+      customerName = "Direct Customer";
+    }
 
     const newGP: GatePass = {
       ...data,
       id,
       gatePassNumber,
-      companySnapshot: data.companySnapshot || (company ? {
+      customerId,
+      customerName,
+      companySnapshot: data.companySnapshot || {
         id: company.id,
         name: company.name,
         gstin: company.gstin,
         phone: company.phone,
         address: company.address,
-      } : {}),
-      destinationBranch: data.destinationBranch || "Main Site",
-      destinationAddress: data.destinationAddress || data.destinationBranch || "Tamil Nadu, India",
-      expectedReturnDate: data.expectedReturnDate || new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0],
+      },
+      destinationBranch: data.destinationBranch || bill?.branches?.[0]?.branchName || "Main Site",
+      destinationAddress: data.destinationAddress || bill?.customerAddress || data.destinationBranch || "Tamil Nadu, India",
+      expectedReturnDate: data.expectedReturnDate || bill?.expectedReturnDate || new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0],
       status: data.status || "DISPATCHED",
       createdAt: new Date().toISOString(),
     };
@@ -2816,15 +3400,72 @@ export class SupabaseStore {
         if (qty <= 0) continue;
         const gpItemId = toValidUuid(it.id);
 
-        // 1. Insert into gate_pass_items
         if (it.productId) {
+          // 3a. Lock product row and re-read stock quantities
+          const prod = await this.getProduct(it.productId, { forUpdate: Boolean(this.executorOverride) });
+          if (!prod) {
+            throw new Error(`Product ${it.productId} not found for dispatch.`);
+          }
+
+          // 3b. Guard against insufficient stock (prevent negative stock)
+          const currentAvail = prod.availableQuantity || 0;
+          if (currentAvail < qty) {
+            throw new Error(
+              `Insufficient stock for "${prod.name}": requested ${qty}, available ${currentAvail}.`
+            );
+          }
+
+          // 3c. Insert into gate_pass_items
           const { data: gpItemRow, error: gpItemErr } = await this.supabase
             .from("gate_pass_items")
             .insert({
               id: gpItemId,
               gate_pass_id: id,
               product_id: it.productId,
-              item_name: it.itemName || "Dispatched Item",
+              item_name: it.itemName || prod.name || "Dispatched Item",
+              size_spec: it.sizeSpec || prod.sizeSpec || null,
+              quantity_dispatched: qty,
+              quantity_returned: 0,
+              quantity_damaged: 0,
+              quantity_missing: 0,
+            })
+            .select()
+            .single();
+
+          if (gpItemErr) throw new Error(`Supabase error inserting gate pass item: ${gpItemErr.message}`);
+          if (gpItemRow) {
+            createdItems.push(mapGatePassItemFromRow(gpItemRow));
+          }
+
+          // 3d. Adjust product stock
+          const newAvail = currentAvail - qty;
+          const newRented = (prod.rentedQuantity || 0) + qty;
+          await this.updateProduct(it.productId, {
+            availableQuantity: newAvail,
+            rentedQuantity: newRented,
+          });
+
+          // 3e. Insert inventory movement audit record
+          const { error: moveErr } = await this.supabase.from("inventory_movements").insert({
+            product_id: it.productId,
+            movement_type: "DISPATCH",
+            quantity_change: -qty,
+            reference_type: "GATE_PASS",
+            reference_id: id,
+            balance_after: newAvail,
+            notes: `Dispatched ${qty} units under Gate Pass ${gatePassNumber}`,
+          });
+
+          if (moveErr) throw new Error(`Supabase error inserting inventory movement: ${moveErr.message}`);
+        } else {
+          // Uncataloged or note line
+          const { data: gpItemRow, error: gpItemErr } = await this.supabase
+            .from("gate_pass_items")
+            .insert({
+              id: gpItemId,
+              gate_pass_id: id,
+              product_id: null,
+              item_name: it.itemName || it.text || "Dispatched Item",
               size_spec: it.sizeSpec || null,
               quantity_dispatched: qty,
               quantity_returned: 0,
@@ -2834,58 +3475,38 @@ export class SupabaseStore {
             .select()
             .single();
 
-          if (!gpItemErr && gpItemRow) {
+          if (gpItemErr) throw new Error(`Supabase error inserting gate pass item: ${gpItemErr.message}`);
+          if (gpItemRow) {
             createdItems.push(mapGatePassItemFromRow(gpItemRow));
-          }
-
-          // 2. Adjust product stock & inventory ledger
-          const prod = await this.getProduct(it.productId);
-          if (prod) {
-            const newAvail = Math.max(0, (prod.availableQuantity || 0) - qty);
-            const newRented = (prod.rentedQuantity || 0) + qty;
-            await this.updateProduct(it.productId, {
-              availableQuantity: newAvail,
-              rentedQuantity: newRented,
-            });
-
-            await this.supabase.from("inventory_movements").insert({
-              product_id: it.productId,
-              movement_type: "DISPATCH",
-              quantity_change: -qty,
-              reference_type: "GATE_PASS",
-              reference_id: id,
-              balance_after: newAvail,
-              notes: `Dispatched ${qty} units under Gate Pass ${gatePassNumber}`,
-            });
           }
         }
       }
     }
 
-    if (data.billId) {
+    if (data.billId && bill) {
       try {
-        const bill = await this.getBill(data.billId);
-        if (bill) {
-          const resolvedActor = this.resolveActor(data.actor);
-          await this.recordAuditLog({
-            entityType: "BILL",
-            entityId: data.billId,
-            entityNumber: bill.billNumber,
-            customerName: bill.customerName,
-            action: "DISPATCH_CREATED",
-            actionLabel: `Gate Pass Dispatched (${gatePassNumber})`,
-            actor: resolvedActor,
-            details: {
-              summary: `Dispatched equipment under Gate Pass #${gatePassNumber} by ${resolvedActor.name} (${resolvedActor.role})`,
-              gatePassNumber,
-              vehicleNumber: data.vehicleNumber,
-              driverName: data.driverName,
-              itemsCount: createdItems.length,
-            },
-          });
-        }
+        const resolvedActor = this.resolveActor(data.actor);
+        await this.recordAuditLog({
+          entityType: "BILL",
+          entityId: data.billId,
+          entityNumber: bill.billNumber,
+          customerName: bill.customerName,
+          action: "DISPATCH_CREATED",
+          actionLabel: `Gate Pass Dispatched (${gatePassNumber})`,
+          actor: resolvedActor,
+          details: {
+            summary: `Dispatched equipment under Gate Pass #${gatePassNumber} by ${resolvedActor.name} (${resolvedActor.role})`,
+            gatePassNumber,
+            vehicleNumber: data.vehicleNumber,
+            driverName: data.driverName,
+            itemsCount: createdItems.length,
+          },
+        });
       } catch (auditErr) {
         console.error("[createGatePass] Failed to record dispatch audit log:", auditErr);
+        if (this.executorOverride) {
+          throw auditErr;
+        }
       }
     }
 
@@ -2902,25 +3523,24 @@ export class SupabaseStore {
   }
 
   async recordReturn(data: any): Promise<ReturnRecord> {
-    const id = data.id || crypto.randomUUID();
-    const returnNumber = data.returnNumber || `RET-${Date.now().toString().slice(-6)}`;
+    if (!data.items || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error("Cannot record return: At least one return item must be provided.");
+    }
 
-    const newReturn: ReturnRecord = {
-      ...data,
-      id,
-      returnNumber,
-      createdAt: new Date().toISOString(),
-    };
+    let billId = data.billId;
+    if (!billId && data.gatePassId) {
+      const gp = await this.getGatePass(data.gatePassId);
+      if (gp?.billId) {
+        billId = gp.billId;
+      }
+    }
 
-    const row = mapReturnRecordToRow(newReturn);
-    const { data: inserted, error } = await this.supabase
-      .from("returns")
-      .insert(row)
-      .select()
-      .single();
+    if (billId) {
+      const result = await this.recordBillReturn(billId, data);
+      return result.returnRecord;
+    }
 
-    if (error) throw new Error(`Supabase error recording return: ${error.message}`);
-    return mapReturnRecordFromRow(inserted);
+    throw new Error("Cannot record physical return: valid billId or gatePassId is required.");
   }
 
   // ==========================================================================
