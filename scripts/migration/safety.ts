@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { ALLOWED_SUPABASE_PROJECT_ID, FORBIDDEN_PROJECT_IDS } from "../../src/lib/db/guard";
-import { SourceConfig, TargetConfig, MigrationMode } from "./types";
+import { SourceConfig, TargetConfig, MigrationMode, MigrationOptions } from "./types";
 
 const SENSITIVE_PATTERNS = [
   /password/i,
@@ -80,7 +80,55 @@ export function sanitizeError(err: any): string {
 /**
  * Strictly verifies target isolation and prevents execution against production systems.
  */
-export function validateTargetSafety(target: TargetConfig, mode: MigrationMode): void {
+export const PRODUCTION_TARGET_DATABASE = "tamilnadu_suppliers";
+export const PRODUCTION_CONFIRM_PREFIX = "IMPORT-INTO-";
+
+export function isProductionProfile(mode: MigrationMode, options?: MigrationOptions): boolean {
+  return mode === "import-production" || !!options?.productionTarget;
+}
+
+/**
+ * Guarded production profile. The loopback/disposable rules above stay the default; this profile only
+ * unlocks ONE named database and still rejects Supabase hosts, bad ports and a missing/incorrect confirmation.
+ * import-production additionally requires an empty target (enforced by the migrator).
+ */
+function validateProductionTargetSafety(target: TargetConfig, mode: MigrationMode, options?: MigrationOptions): void {
+  const host = target.host.trim().toLowerCase();
+  const database = target.database.trim().toLowerCase();
+
+  if (
+    host.includes("supabase") ||
+    host.includes(ALLOWED_SUPABASE_PROJECT_ID) ||
+    FORBIDDEN_PROJECT_IDS.some((id) => host.includes(id))
+  ) {
+    throw new Error(
+      `[CRITICAL TARGET SAFETY VIOLATION] Target host '${target.host}' points to a Supabase Cloud host. Standalone target must be independent.`
+    );
+  }
+  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(host) || host.includes("..") || host === "0.0.0.0") {
+    throw new Error(`[CRITICAL TARGET SAFETY VIOLATION] Unusual host format '${target.host}' rejected.`);
+  }
+  if (isNaN(target.port) || target.port < 1 || target.port > 65535) {
+    throw new Error(`[CRITICAL TARGET SAFETY VIOLATION] Invalid target port '${target.port}'.`);
+  }
+  if (database !== PRODUCTION_TARGET_DATABASE) {
+    throw new Error(
+      `[CRITICAL TARGET SAFETY VIOLATION] Production profile only permits database '${PRODUCTION_TARGET_DATABASE}'. Found: '${target.database}'.`
+    );
+  }
+  const expected = PRODUCTION_CONFIRM_PREFIX + PRODUCTION_TARGET_DATABASE;
+  if (options?.productionTarget?.confirm !== expected) {
+    throw new Error(
+      `[CRITICAL TARGET SAFETY VIOLATION] Production target requires --confirm-production ${expected} (mode '${mode}').`
+    );
+  }
+}
+
+export function validateTargetSafety(target: TargetConfig, mode: MigrationMode, options?: MigrationOptions): void {
+  if (isProductionProfile(mode, options)) {
+    validateProductionTargetSafety(target, mode, options);
+    return;
+  }
   const host = target.host.trim().toLowerCase().replace(/^\[|\]$/g, "");
   const database = target.database.trim().toLowerCase();
   const port = target.port;
@@ -149,7 +197,12 @@ export function validateTargetSafety(target: TargetConfig, mode: MigrationMode):
 /**
  * Validates source configuration and verifies source and target identity cannot collide.
  */
-export function validateEnvironmentIsolation(source: SourceConfig, target: TargetConfig): void {
+export function validateEnvironmentIsolation(
+  source: SourceConfig,
+  target: TargetConfig,
+  options?: MigrationOptions,
+  mode?: MigrationMode
+): void {
   // Check for source/target collision
   if (source.type === "postgres" && source.connectionString) {
     try {
@@ -174,6 +227,7 @@ export function validateEnvironmentIsolation(source: SourceConfig, target: Targe
   }
 
   // Ensure remote production endpoints are rejected for target in this batch
+  if (mode && isProductionProfile(mode, options)) return; // host already validated by the production profile
   const normalizedTargetHost = target.host.toLowerCase();
   if (!["127.0.0.1", "localhost", "::1"].includes(normalizedTargetHost)) {
     throw new Error(
@@ -193,7 +247,8 @@ export function validateEnvironmentIsolation(source: SourceConfig, target: Targe
  */
 export async function assertLiveTargetConnection(
   clientOrPool: { query: (sql: string, params?: any[]) => Promise<any> },
-  expectedTarget: TargetConfig
+  expectedTarget: TargetConfig,
+  productionProfile = false
 ): Promise<{ serverAddr: string | null; serverPort: number; currentDb: string; currentUser: string }> {
   const res = await clientOrPool.query(`
     SELECT
@@ -215,8 +270,8 @@ export async function assertLiveTargetConnection(
   const expectedDb = expectedTarget.database.trim().toLowerCase();
   const expectedUser = expectedTarget.user.trim().toLowerCase();
 
-  // 1. Verify Socket Address is Loopback or Local Domain Socket
-  if (serverAddr !== null) {
+  // 1. Verify Socket Address is Loopback or Local Domain Socket (disposable profile only)
+  if (!productionProfile && serverAddr !== null) {
     const isLoopbackAddr =
       serverAddr === "127.0.0.1" ||
       serverAddr === "::1" ||
@@ -236,18 +291,25 @@ export async function assertLiveTargetConnection(
     );
   }
 
-  // 3. Reject Production Patterns
+  // 3. Reject Production Patterns (disposable profile only)
   if (
-    currentDb.includes("prod") ||
+    !productionProfile &&
+    (currentDb.includes("prod") ||
     currentDb.includes("production") ||
     currentDb === "tamilnadu_suppliers" ||
     currentDb === "postgres" ||
     currentDb === "template0" ||
     currentDb === "template1" ||
-    (!currentDb.includes("test") && !currentDb.includes("disposable"))
+    (!currentDb.includes("test") && !currentDb.includes("disposable")))
   ) {
     throw new Error(
       `[CRITICAL TARGET SAFETY VIOLATION] Connected database '${currentDb}' is not an authorized test/disposable database.`
+    );
+  }
+
+  if (productionProfile && currentDb !== PRODUCTION_TARGET_DATABASE) {
+    throw new Error(
+      `[CRITICAL TARGET SAFETY VIOLATION] Production profile connected to '${currentDb}', expected '${PRODUCTION_TARGET_DATABASE}'.`
     );
   }
 

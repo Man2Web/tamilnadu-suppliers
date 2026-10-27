@@ -10,7 +10,7 @@ import {
   ReconciliationReport,
   TableImportResult,
 } from "./types";
-import { validateTargetSafety, validateEnvironmentIsolation, sanitizeError, assertLiveTargetConnection } from "./safety";
+import { validateTargetSafety, validateEnvironmentIsolation, sanitizeError, assertLiveTargetConnection, isProductionProfile } from "./safety";
 import { AUTHORITATIVE_TABLE_GRAPH, getTopologicalOrder } from "./dependencyGraph";
 import { createDataExtractor, IDataExtractor } from "./extractor";
 import { transformTableRecords } from "./transformer";
@@ -20,13 +20,15 @@ export class DataMigrator {
   private config: MigrationConfig;
   private extractor: IDataExtractor;
   private targetPool: Pool;
+  private productionProfile: boolean;
 
   constructor(config: MigrationConfig, extractor?: IDataExtractor) {
     this.config = config;
+    this.productionProfile = isProductionProfile(config.mode, config.options);
 
     // 1. Enforce strict target safety
-    validateTargetSafety(this.config.target, this.config.mode);
-    validateEnvironmentIsolation(this.config.source, this.config.target);
+    validateTargetSafety(this.config.target, this.config.mode, this.config.options);
+    validateEnvironmentIsolation(this.config.source, this.config.target, this.config.options, this.config.mode);
 
     // 2. Instantiate extractor
     this.extractor = extractor || createDataExtractor(this.config.source);
@@ -59,6 +61,8 @@ export class DataMigrator {
         return this.runDryRun();
       case "import-disposable":
         return this.runImportDisposable();
+      case "import-production":
+        return this.runImportDisposable("import-production");
       case "reconcile":
         return this.runStandaloneReconcile();
       default:
@@ -70,7 +74,7 @@ export class DataMigrator {
    * Mode 1: inspect — validates config, permissions, and source/target table availability.
    */
   async runInspect(): Promise<{ success: boolean; summary: string; details: any }> {
-    await assertLiveTargetConnection(this.targetPool, this.config.target);
+    await assertLiveTargetConnection(this.targetPool, this.config.target, this.productionProfile);
     const srcSchema = await this.extractor.inspectSchema();
     const tgtRes = await this.targetPool.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;`
@@ -134,7 +138,7 @@ export class DataMigrator {
 
     // 2. Transaction Simulation on Target with Unconditional ROLLBACK
     const client: PoolClient = await this.targetPool.connect();
-    await assertLiveTargetConnection(client, this.config.target);
+    await assertLiveTargetConnection(client, this.config.target, this.productionProfile);
     let report: ReconciliationReport;
 
     try {
@@ -179,9 +183,9 @@ export class DataMigrator {
   /**
    * Mode 3: import-disposable — imports data into an empty disposable test database.
    */
-  async runImportDisposable(): Promise<{ success: boolean; report: ReconciliationReport; summary: string; details: any }> {
+  async runImportDisposable(modeLabel: "import-disposable" | "import-production" = "import-disposable"): Promise<{ success: boolean; report: ReconciliationReport; summary: string; details: any }> {
     // 1. Verify Target Live Connection and Preconditions (Must be empty to avoid data corruption or collision)
-    await assertLiveTargetConnection(this.targetPool, this.config.target);
+    await assertLiveTargetConnection(this.targetPool, this.config.target, this.productionProfile);
     await this.assertTargetEmptyPrecondition();
 
     const topologicalOrder = getTopologicalOrder();
@@ -209,7 +213,7 @@ export class DataMigrator {
 
     // 3. Live Transactional Import
     const client: PoolClient = await this.targetPool.connect();
-    await assertLiveTargetConnection(client, this.config.target);
+    await assertLiveTargetConnection(client, this.config.target, this.productionProfile);
     let report: ReconciliationReport;
 
     try {
@@ -229,7 +233,7 @@ export class DataMigrator {
 
       // Reconcile before committing
       const reconciler = new MigrationReconciler(client);
-      report = await reconciler.runReconciliation(sourceCounts, "import-disposable", {
+      report = await reconciler.runReconciliation(sourceCounts, modeLabel, {
         skipSessions: this.config.options?.skipSessions ?? true,
       });
 
@@ -263,7 +267,7 @@ export class DataMigrator {
    * Mode 4: reconcile — standalone reconciliation comparing source and target without modifying data.
    */
   async runStandaloneReconcile(): Promise<{ success: boolean; report: ReconciliationReport; summary: string }> {
-    await assertLiveTargetConnection(this.targetPool, this.config.target);
+    await assertLiveTargetConnection(this.targetPool, this.config.target, this.productionProfile);
     const topologicalOrder = getTopologicalOrder();
     const sourceCounts = new Map<string, number>();
 

@@ -3,7 +3,7 @@
 // File: scripts/migration/types.ts
 // ============================================================================
 
-export type MigrationMode = "inspect" | "dry-run" | "import-disposable" | "reconcile";
+export type MigrationMode = "inspect" | "dry-run" | "import-disposable" | "import-production" | "reconcile";
 
 export interface MigrationConfig {
   mode: MigrationMode;
@@ -36,6 +36,11 @@ export interface MigrationOptions {
   cleanRateLimits?: boolean;
   outputPath?: string;
   stopOnError?: boolean;
+  /**
+   * Explicit opt-in to target the approved production database instead of a loopback disposable one.
+   * Requires an exact confirmation phrase (see PRODUCTION_CONFIRM_PREFIX in safety.ts).
+   */
+  productionTarget?: { confirm: string };
 }
 
 export interface TableDependency {

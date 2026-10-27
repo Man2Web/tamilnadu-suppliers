@@ -29,6 +29,7 @@ MODES (Explicit mode required; absence will not default to import):
   inspect            Validate schema parity, foreign keys, and connectivity without writing data
   dry-run            Extract, transform, and simulate import inside a rolled-back transaction
   import-disposable  Execute import into an approved empty disposable test database
+  import-production  Import into the empty production database 'tamilnadu_suppliers' (requires --confirm-production)
   reconcile          Reconcile row counts, foreign key integrity, and financial arithmetic
 
 OPTIONS:
@@ -42,6 +43,8 @@ OPTIONS:
   --target-user <user>        Target username (default: tns_app_user, env: TEST_DB_USER)
   --target-password <pass>    Target password (env: TEST_DB_PASSWORD or TARGET_DB_PASSWORD)
   --batch-size <size>         Batch size for extraction/insertion (default: 1000)
+  --confirm-production <phrase>  Unlocks the production target (must equal IMPORT-INTO-tamilnadu_suppliers). Also
+                              allows inspect/dry-run/reconcile against it. Target must be empty for import.
   --skip-sessions             Exclude user sessions from migration per cutover policy (default: true)
   --output <filePath>         Optional file path to write full JSON reconciliation report
   --help                      Print this usage screen
@@ -71,7 +74,7 @@ function parseArgs(): { mode: MigrationMode; config: MigrationConfig; outputPath
     process.exit(1);
   }
 
-  const validModes: MigrationMode[] = ["inspect", "dry-run", "import-disposable", "reconcile"];
+  const validModes: MigrationMode[] = ["inspect", "dry-run", "import-disposable", "import-production", "reconcile"];
   if (!validModes.includes(rawMode as MigrationMode)) {
     console.error(`\n❌ [ERROR] Invalid mode: '${rawMode}'. Must be one of: ${validModes.join(", ")}`);
     process.exit(1);
@@ -135,6 +138,7 @@ function parseArgs(): { mode: MigrationMode; config: MigrationConfig; outputPath
       skipSessions,
       outputPath,
       verbose: args.includes("--verbose"),
+      productionTarget: getArg("--confirm-production") ? { confirm: getArg("--confirm-production") as string } : undefined,
     },
   };
 
@@ -154,7 +158,7 @@ async function main(): Promise<void> {
   console.log(`================================================================\n`);
 
   if (!config.target.password) {
-    console.error(`❌ [ERROR] Target database password is missing. Set TEST_DB_PASSWORD or pass --target-password.`);
+    console.error(`❌ [ERROR] Target database password is missing. Set TEST_DB_PASSWORD / TARGET_DB_PASSWORD or pass --target-password.`);
     process.exit(1);
   }
 
