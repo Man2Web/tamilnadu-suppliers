@@ -49,17 +49,17 @@ async function main() {
   }
 
   // Check if Super Admin is already initialized
-  if (store.isSuperAdminInitialized()) {
+  if (await store.isSuperAdminInitialized()) {
     console.log("⚠️  NOTICE: A Super Admin account is ALREADY INITIALIZED.");
     console.log("Only one active Super Admin account is permitted.");
     console.log("Duplicate initialization has been blocked to protect the system.\n");
-    const superAdmin = store.getSuperAdmin();
+    const superAdmin = await store.getSuperAdmin();
     console.log(`Current Super Admin Login ID: ${superAdmin?.email}`);
     process.exit(0);
   }
 
   try {
-    const admin = store.setupInitialSuperAdmin({
+    const admin = await store.setupInitialSuperAdmin({
       username,
       password,
       name,
@@ -84,4 +84,4 @@ async function main() {
   }
 }
 
-main();
+main().then(() => process.exit(0));
