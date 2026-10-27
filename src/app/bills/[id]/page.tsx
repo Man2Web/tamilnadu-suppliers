@@ -122,6 +122,10 @@ export default function BillWorkspacePage({
     billLines,
   });
 
+  // True once goods have left on a gate pass. From then on physical return quantities can only be changed through the
+  // formal return endpoint, so the autosave must not resend them (the server rejects it).
+  const dispatchedRef = React.useRef(false);
+
   // Keep stateRef up to date
   React.useEffect(() => {
     stateRef.current = {
@@ -172,6 +176,8 @@ export default function BillWorkspacePage({
       if (!res.ok) throw new Error("Bill not found");
       const data: Bill = await res.json();
       setBill(data);
+      dispatchedRef.current =
+        (data.totalDispatched || 0) > 0 || !["ACTIVE", "ISSUED", "DRAFT"].includes(String(data.status));
 
       if (data.expectedReturnDate) {
         setAmendReturnDate(data.expectedReturnDate);
@@ -370,6 +376,10 @@ export default function BillWorkspacePage({
   }
 
   const productLines = billLines.filter((l) => l.entryType !== "note");
+  const canRecordReturn =
+    ((bill.totalDispatched || 0) > 0 || !["ACTIVE", "ISSUED", "DRAFT"].includes(String(bill.status))) &&
+    bill.status !== "CLOSED" &&
+    bill.status !== "CANCELLED";
   // A bill that has not been dispatched yet has nothing dispatched or returned, whatever the pre-filled return fields say
   const isUndispatched = !bill.totalDispatched && (bill.status === "ACTIVE" || bill.status === "ISSUED");
   const totalDispatched = isUndispatched ? 0 : bill.totalDispatched || productLines.reduce((acc, it) => acc + (it.quantity || 0), 0);
@@ -516,10 +526,11 @@ export default function BillWorkspacePage({
         days: it.entryType === "note" ? 0 : it.days,
         unitPrice: it.entryType === "note" ? 0 : it.unitPrice,
         amount: it.entryType === "note" ? 0 : it.amount,
-        quantityPhysicallyReturned: state.physicalReturned,
-        quantityReturnedGood: it.entryType === "note" ? 0 : state.returnedGood,
-        quantityDamaged: it.entryType === "note" ? 0 : state.damaged,
-        quantityMissing: it.entryType === "note" ? 0 : state.missing,
+        // Once dispatched, send what the server has already recorded; new returns go through "Record Return"
+        quantityPhysicallyReturned: dispatchedRef.current ? it.quantityPhysicallyReturned : state.physicalReturned,
+        quantityReturnedGood: it.entryType === "note" ? 0 : dispatchedRef.current ? it.quantityReturnedGood ?? 0 : state.returnedGood,
+        quantityDamaged: it.entryType === "note" ? 0 : dispatchedRef.current ? it.quantityDamaged ?? 0 : state.damaged,
+        quantityMissing: it.entryType === "note" ? 0 : dispatchedRef.current ? it.quantityMissing ?? 0 : state.missing,
         damageChargeDecision: state.damageChargeDecision,
         damageChargeAmount: state.damageChargeAmount,
         missingChargeDecision: state.missingChargeDecision,
@@ -917,6 +928,62 @@ export default function BillWorkspacePage({
     }
   };
 
+  // Record Return: sends only the NEW units (entered minus already recorded) to the formal return endpoint
+  const handleRecordReturn = async () => {
+    if (!bill) return;
+    setActionError(null);
+    setActionSuccess(null);
+    setSubmitting(true);
+    try {
+      const gpRes = await fetchWithAuth("/api/operations/gate-passes");
+      const gpData = await gpRes.json();
+      const gatePasses = (Array.isArray(gpData) ? gpData : gpData.gatePasses || []).filter((g: any) => g.billId === bill.id);
+      const gpItems: any[] = gatePasses.flatMap((g: any) => g.items || []);
+      if (gpItems.length === 0) throw new Error("This bill has no dispatch yet. Dispatch the items before recording a return.");
+
+      const used = new Set<string>();
+      const items: any[] = [];
+      for (const line of billLines) {
+        if (line.entryType === "note" || !line.productId) continue;
+        const st = rowStates[line.id];
+        if (!st) continue;
+        const goodNow = Math.max(0, (st.returnedGood || 0) - (line.quantityReturnedGood ?? 0));
+        const damagedNow = Math.max(0, (st.damaged || 0) - (line.quantityDamaged ?? 0));
+        const missingNow = Math.max(0, (st.missing || 0) - (line.quantityMissing ?? 0));
+        if (goodNow + damagedNow + missingNow === 0) continue;
+        const gpItem = gpItems.find((g) => g.productId === line.productId && !used.has(g.id));
+        if (!gpItem) throw new Error(`"${line.itemName}" was not part of the dispatch.`);
+        used.add(gpItem.id);
+        items.push({
+          gatePassItemId: gpItem.id,
+          productId: line.productId,
+          itemName: line.itemName,
+          goodQuantity: goodNow,
+          damagedQuantity: damagedNow,
+          missingQuantity: missingNow,
+          damageNotes: st.damageNotes || "",
+          missingNotes: st.missingNotes || "",
+        });
+      }
+      if (items.length === 0) throw new Error("Nothing new to record. Enter the damaged or missing units first (good units are the rest).");
+
+      const res = await fetchWithAuth(`/api/bills/${bill.id}/returns`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ returnDate: stateRef.current.returnDate, items }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Return could not be recorded (HTTP ${res.status})`);
+      setActionSuccess("Return recorded. Stock has been updated; decide any damage or missing charges below.");
+      await fetchBill();
+      setHistoryRefreshKey((k) => k + 1);
+    } catch (e: any) {
+      setActionError(e.message || "Return could not be recorded.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // WhatsApp Share Action
   const handleWhatsAppShare = async () => {
     if (!whatsAppPhone) {
@@ -1193,11 +1260,23 @@ export default function BillWorkspacePage({
               Rental Items & Document Notes
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Enter return quantities, independent damage charges, and missing-item charges. Notes appear inline in sequence.
+              {canRecordReturn
+                ? "Enter the damaged and missing quantities (good units are the rest), then press Record Return. Damage and missing charges are decided afterwards."
+                : "Enter return quantities, independent damage charges, and missing-item charges. Notes appear inline in sequence."}
             </p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {canRecordReturn && (
+              <button
+                type="button"
+                onClick={handleRecordReturn}
+                disabled={submitting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" /> {submitting ? "Recording..." : "Record Return"}
+              </button>
+            )}
             {/* Location Filter Dropdown */}
             {uniqueLocations.length > 0 && (
               <div className="flex items-center gap-1.5 text-xs">
