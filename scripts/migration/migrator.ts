@@ -392,7 +392,7 @@ export class DataMigrator {
       SET next_invoice_no = GREATEST(
           c.next_invoice_no,
           COALESCE((
-              SELECT MAX(NULLIF(regexp_replace(b.bill_number, '^[^0-9]+', '', 'g'), '')::INTEGER) + 1
+              SELECT MAX(NULLIF(substring(b.bill_number from '[0-9]{1,9}$'), '')::INTEGER) + 1
               FROM public.bills b
               WHERE b.company_id = c.id
           ), c.next_invoice_no)
@@ -400,7 +400,7 @@ export class DataMigrator {
       next_quotation_no = GREATEST(
           c.next_quotation_no,
           COALESCE((
-              SELECT MAX(NULLIF(regexp_replace(q.quotation_number, '^[^0-9]+', '', 'g'), '')::INTEGER) + 1
+              SELECT MAX(NULLIF(substring(q.quotation_number from '[0-9]{1,9}$'), '')::INTEGER) + 1
               FROM public.quotations q
               WHERE q.company_id = c.id
           ), c.next_quotation_no)
@@ -408,7 +408,7 @@ export class DataMigrator {
       next_gate_pass_no = GREATEST(
           c.next_gate_pass_no,
           COALESCE((
-              SELECT MAX(NULLIF(regexp_replace(gp.gate_pass_number, '^[^0-9]+', '', 'g'), '')::INTEGER) + 1
+              SELECT MAX(NULLIF(substring(gp.gate_pass_number from '[0-9]{1,9}$'), '')::INTEGER) + 1
               FROM public.gate_passes gp
               WHERE gp.company_id = c.id
           ), c.next_gate_pass_no)
