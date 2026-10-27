@@ -4135,6 +4135,11 @@ export class SupabaseStore {
       userName: userName || "System User",
       username: username || "system",
       role: role || "SUPER_ADMIN",
+      // The table requires a title and message; callers (login) only pass the event details
+      title: data.title || (data.type === "SIGN_IN" || !data.type ? "Account signed in" : "Account activity"),
+      message:
+        data.message ||
+        `${userName || "A user"} (${role || "user"}) signed in${data.ipAddress && data.ipAddress !== "unknown" ? ` from ${data.ipAddress}` : ""}.`,
       isRead: false,
       isRejected: false,
       createdAt: new Date().toISOString(),

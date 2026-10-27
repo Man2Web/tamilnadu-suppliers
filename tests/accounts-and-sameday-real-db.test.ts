@@ -84,6 +84,17 @@ describe("Accounts and same-day rentals on real PostgreSQL", { skip: !testDb.isC
     assert.equal(later!.mustChangePassword, false, "the forced change must not repeat after it is done");
   });
 
+  it("sign-in notification for an Admin/Billing login is stored with a title and message (login used to fail with 'required field is missing: title')", async () => {
+    const user = await store.getUserByUsernameOrEmail("zzacc-bill@example.com");
+    assert.ok(user);
+    const sessionId = crypto.randomUUID();
+    const n = await store.createNotification({ type: "SIGN_IN", userId: user!.id, sessionId, ipAddress: "10.0.0.5" });
+    assert.ok(n.title && n.title.length > 0);
+    assert.match(n.message, /ZZACC Billing.*BILLING.*10\.0\.0\.5/);
+    const row = (await pool.query(`SELECT title, message FROM public.activity_notifications WHERE session_id = $1`, [sessionId])).rows[0];
+    assert.ok(row.title && row.message);
+  });
+
   it("a username-only account logs in with that username; duplicates are refused with a clear message", async () => {
     await store.createUser({ name: "ZZACC Counter", username: "zzacc-counter", password: "Counter11" }, "SUPER_ADMIN");
     const login = await store.verifyCredentialsAsync("zzacc-counter", "Counter11");

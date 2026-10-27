@@ -135,12 +135,17 @@ export async function POST(req: NextRequest) {
 
     // In-app notification for Super Admin whenever an Admin or Billing account signs in
     if (user.role === "ADMIN" || user.role === "BILLING") {
-      await store.createNotification({
-        type: "SIGN_IN",
-        userId: user.id,
-        sessionId: session.id,
-        ipAddress: ip,
-      });
+      // The notification is informational: a failure here must never stop a valid user from signing in
+      try {
+        await store.createNotification({
+          type: "SIGN_IN",
+          userId: user.id,
+          sessionId: session.id,
+          ipAddress: ip,
+        });
+      } catch (notifyErr: unknown) {
+        console.error("[login:notification] Could not create sign-in notification:", notifyErr instanceof Error ? notifyErr.message : notifyErr);
+      }
     }
 
     // Build response with sanitized user data
