@@ -499,57 +499,44 @@ describe("Batch 5.6 — Atomic Dispatch Recording in PostgreSQL Mode", { skip: !
   });
 
   // --------------------------------------------------------------------------
-  // Test 7: Insufficient stock is rejected without partial writes
+  // Test 7: Dispatch beyond recorded stock is allowed, never drives stock negative, and is audited
   // --------------------------------------------------------------------------
-  it("7. rejects dispatch when requested quantity exceeds available stock without partial writes", async () => {
-    const compBefore = await appPool.query(`SELECT next_gate_pass_no FROM public.companies WHERE id = $1`, [COMPANY_ID]);
-    const expectedSeq = compBefore.rows[0].next_gate_pass_no;
-    const prodBefore = await appPool.query(`SELECT available_quantity FROM public.products WHERE id = $1`, [PROD_LIMITED_ID]);
-    const currentAvail = prodBefore.rows[0].available_quantity; // 5
-
-    const failGpId = `${FIXTURE_PREFIX}gp-insufficient`;
-
-    let threw = false;
-    try {
-      await testStore.createGatePass({
-        id: failGpId,
-        companyId: COMPANY_ID,
-        customerId: CUSTOMER_ID,
-        customerName: "Batch 5.6 Customer Pvt Ltd",
-        items: [{ productId: PROD_LIMITED_ID, quantityDispatched: 50 }], // 50 > 5
-      });
-    } catch (err: any) {
-      threw = true;
-      assert.match(err.message, /Insufficient stock/i);
-    }
-    assert.equal(threw, true, "Must reject dispatch due to insufficient stock");
-
-    // Verify gate pass was NOT created
-    const gpCheck = await appPool.query(`SELECT count(*) as cnt FROM public.gate_passes WHERE id = $1`, [failGpId]);
-    assert.equal(Number(gpCheck.rows[0].cnt), 0);
-
-    // Verify stock was NOT deducted
-    const prodAfter = await appPool.query(`SELECT available_quantity FROM public.products WHERE id = $1`, [PROD_LIMITED_ID]);
-    assert.equal(prodAfter.rows[0].available_quantity, currentAvail);
-
-    // Verify sequence was NOT incremented
-    const compAfter = await appPool.query(`SELECT next_gate_pass_no FROM public.companies WHERE id = $1`, [COMPANY_ID]);
-    assert.equal(compAfter.rows[0].next_gate_pass_no, expectedSeq);
+  it("7. dispatches beyond recorded stock: available stops at 0 (never negative), all units count as rented, shortfall audited", async () => {
+    const shortId = `${FIXTURE_PREFIX}prod-short`;
+    await appPool.query(
+      `INSERT INTO public.products (id, name, sku, unit, default_rental_rate, total_owned_quantity, available_quantity, rented_quantity, is_active)
+       VALUES ($1, 'Batch 5.6 Short Item', 'SKU-B56-SHORT', 'Nos', 10.00, 8, 2, 0, true)`,
+      [shortId]
+    );
+    const gp = await testStore.createGatePass({
+      id: `${FIXTURE_PREFIX}gp-shortfall`,
+      companyId: COMPANY_ID,
+      customerId: CUSTOMER_ID,
+      customerName: "Batch 5.6 Customer Pvt Ltd",
+      billId: undefined,
+      actor: { id: USER_ID, name: "Batch 5.6 Dispatcher", role: "BILLING" },
+      items: [{ productId: shortId, itemName: "Batch 5.6 Short Item", quantityDispatched: 5 }], // 5 > 2 recorded
+    });
+    assert.equal(gp.items.length, 1);
+    const after = await appPool.query(`SELECT available_quantity, rented_quantity, total_owned_quantity FROM public.products WHERE id = $1`, [shortId]);
+    assert.deepEqual(after.rows[0], { available_quantity: 0, rented_quantity: 5, total_owned_quantity: 8 });
+    const audit = await appPool.query(`SELECT 1 FROM public.audit_logs WHERE action = 'STOCK_SHORTFALL_DISPATCH' AND entity_id = $1`, [gp.id]);
+    assert.equal(audit.rows.length, 1);
+    const mv = await appPool.query(`SELECT quantity_change FROM public.inventory_movements WHERE reference_id = $1`, [gp.id]);
+    assert.equal(mv.rows[0].quantity_change, -2, "only the recorded 2 units leave available stock");
   });
 
   // --------------------------------------------------------------------------
-  // Test 8: Two concurrent dispatches against same stock cannot oversell
+  // Test 8: Two concurrent dispatches against the same product row stay consistent
   // --------------------------------------------------------------------------
-  it("8. serializes concurrent dispatches against the same product row preventing overselling", async () => {
+  it("8. concurrent dispatches against the same product row are serialized: stock never goes negative and rented counts both", async () => {
     // prod-limited has exactly 5 units available
     const prodCheck = await appPool.query(`SELECT available_quantity FROM public.products WHERE id = $1`, [PROD_LIMITED_ID]);
     assert.equal(prodCheck.rows[0].available_quantity, 5);
 
-    // Two independent stores with separate connection pools
     const store1 = new SupabaseStore();
     const store2 = new SupabaseStore();
 
-    // Two dispatches both requesting all 5 available units simultaneously
     const [res1, res2] = await Promise.allSettled([
       store1.createGatePass({
         id: `${FIXTURE_PREFIX}gp-race-1`,
@@ -567,18 +554,12 @@ describe("Batch 5.6 — Atomic Dispatch Recording in PostgreSQL Mode", { skip: !
       }),
     ]);
 
-    const fulfilled = [res1, res2].filter((r) => r.status === "fulfilled") as PromiseFulfilledResult<any>[];
-    const rejected = [res1, res2].filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+    assert.equal(res1.status, "fulfilled");
+    assert.equal(res2.status, "fulfilled");
 
-    assert.equal(fulfilled.length, 1, "Exactly one concurrent dispatch must succeed");
-    assert.equal(rejected.length, 1, "Exactly one concurrent dispatch must be rejected");
-
-    assert.match(rejected[0].reason.message, /Insufficient stock/i, "Second request must fail on insufficient stock");
-
-    // Final database state check
     const finalProd = await appPool.query(`SELECT available_quantity, rented_quantity FROM public.products WHERE id = $1`, [PROD_LIMITED_ID]);
     assert.equal(finalProd.rows[0].available_quantity, 0, "Available stock must be 0, never negative");
-    assert.equal(finalProd.rows[0].rented_quantity, 5, "Rented stock must be 5");
+    assert.equal(finalProd.rows[0].rented_quantity, 10, "Both dispatches count as rented (the second is a shortfall dispatch)");
   });
 
   // --------------------------------------------------------------------------

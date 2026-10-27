@@ -3502,15 +3502,9 @@ export class SupabaseStore {
 
     const createdItems: GatePassItem[] = [];
     const shortfalls: Array<{ productId: string; productName: string; requested: number; recordedAvailable: number; shortfall: number }> = [];
-    // The flag only counts for an administrator; the actor is the authenticated session, never a client-supplied value.
+    // Anyone allowed to dispatch may go beyond the recorded stock; every shortfall is audited (below).
     const dispatchActor = this.resolveActor(data.actor);
-    const dispatchRole = String(dispatchActor.role || "").toUpperCase();
-    const shortfallAllowedRole = dispatchRole === "ADMIN" || dispatchRole === "SUPER_ADMIN" || dispatchRole === "OWNER";
-    const shortfallReason = String(data.stockShortfallReason || "").trim();
-    const shortfallApproved = data.allowStockShortfall === true && shortfallAllowedRole;
-    if (data.allowStockShortfall === true && shortfallAllowedRole && shortfallReason.length < 5) {
-      throw new Error("Enter the reason for dispatching beyond the recorded stock (at least 5 characters).");
-    }
+    const shortfallReason = String(data.stockShortfallReason || "").trim() || "Dispatched beyond recorded stock";
     if (data.items && Array.isArray(data.items) && data.items.length > 0) {
       for (const it of data.items) {
         const qty = Number(it.quantityDispatched || it.quantity || 1);
@@ -3524,20 +3518,11 @@ export class SupabaseStore {
             throw new Error(`Product ${it.productId} not found for dispatch.`);
           }
 
-          // 3b. Guard against insufficient stock (prevent negative stock). An administrator may approve an explicit,
-          // audited exception ("stock shortfall dispatch") when the recorded availability is wrong or zero: the goods really
-          // leave, the shortfall is logged with a reason, and recorded stock is never pushed below zero or silently topped up.
+          // 3b. Guard against insufficient stock (prevent negative stock). When the recorded availability is wrong or zero the goods still
+          // leave: the shortfall is audited, and recorded stock is never pushed below zero or silently topped up.
           const currentAvail = prod.availableQuantity || 0;
           const shortfall = Math.max(0, qty - currentAvail);
           if (shortfall > 0) {
-            if (!shortfallApproved) {
-              throw new Error(
-                `Insufficient stock for "${prod.name}": requested ${qty}, available ${currentAvail}.` +
-                  (shortfallAllowedRole
-                    ? " You can dispatch anyway by approving a stock exception and entering the reason."
-                    : " Ask an administrator to approve a stock exception if the goods are really being dispatched.")
-              );
-            }
             shortfalls.push({ productId: it.productId, productName: prod.name, requested: qty, recordedAvailable: currentAvail, shortfall });
           }
 
@@ -3623,7 +3608,7 @@ export class SupabaseStore {
         actionLabel: `Dispatched beyond recorded stock (${gatePassNumber})`,
         actor: dispatchActor,
         details: {
-          summary: `${dispatchActor.name} approved dispatching more than the recorded available stock under Gate Pass #${gatePassNumber}: ${shortfallReason}`,
+          summary: `${dispatchActor.name} dispatched more than the recorded available stock under Gate Pass #${gatePassNumber}: ${shortfallReason}`,
           gatePassNumber,
           reason: shortfallReason,
           items: shortfalls,

@@ -117,45 +117,17 @@ describe("Stock shortfall dispatch, returns, damaged, missing and closure", { sk
 
   const billId = `${P}bill-1`;
 
-  it("1. zero available stock blocks a normal dispatch and nothing changes", async () => {
+  it("1. a billing user can dispatch beyond recorded stock with no approval step; available never goes below 0, rented counts the goods, audit and movement are written", async () => {
     await seedBill(billId, "TNS-STK-0001");
-    await assert.rejects(
-      () => store.createGatePass(dispatchBody(billId, [{ productId: PROD_ZERO, itemName: "Stock Test Dabara", quantityDispatched: 4 }])),
-      /Insufficient stock for "Stock Test Dabara": requested 4, available 0/
-    );
-    assert.deepEqual(await prod(PROD_ZERO), { a: 0, r: 0, d: 0, m: 0, t: 10 });
-    const gps = await pool.query(`SELECT 1 FROM public.gate_passes WHERE bill_id = $1`, [billId]);
-    assert.equal(gps.rows.length, 0);
-  });
-
-  it("2. a non-admin cannot use the exception, even by sending the flag", async () => {
-    await assert.rejects(
-      () =>
-        store.createGatePass(
-          dispatchBody(billId, [{ productId: PROD_ZERO, itemName: "x", quantityDispatched: 4 }], { allowStockShortfall: true, stockShortfallReason: "stock not entered yet" }, biller)
-        ),
-      /Insufficient stock/
-    );
-    assert.deepEqual(await prod(PROD_ZERO), { a: 0, r: 0, d: 0, m: 0, t: 10 });
-  });
-
-  it("3. an administrator needs a reason to use the exception", async () => {
-    await assert.rejects(
-      () => store.createGatePass(dispatchBody(billId, [{ productId: PROD_ZERO, itemName: "x", quantityDispatched: 4 }], { allowStockShortfall: true })),
-      /reason/i
-    );
-    assert.deepEqual(await prod(PROD_ZERO), { a: 0, r: 0, d: 0, m: 0, t: 10 });
-  });
-
-  it("4. admin exception dispatches: available never below 0, rented counts the goods, audit and movement are written", async () => {
     const gp = await store.createGatePass(
       dispatchBody(
         billId,
         [
-          { productId: PROD_ZERO, itemName: "Stock Test Dabara", quantityDispatched: 4 },
+          { productId: PROD_ZERO, itemName: "Stock Test Dabara", quantityDispatched: 4 }, // 0 recorded
           { productId: PROD_PARTIAL, itemName: "Stock Test Chair", quantityDispatched: 5 }, // 3 recorded, 2 short
         ],
-        { allowStockShortfall: true, stockShortfallReason: "Opening stock was never entered" }
+        {},
+        biller
       )
     );
     assert.equal(gp.items.length, 2);
@@ -163,8 +135,9 @@ describe("Stock shortfall dispatch, returns, damaged, missing and closure", { sk
     assert.deepEqual(await prod(PROD_PARTIAL), { a: 0, r: 5, d: 0, m: 0, t: 10 });
     const audit = await pool.query(`SELECT details FROM public.audit_logs WHERE action = 'STOCK_SHORTFALL_DISPATCH' AND entity_id = $1`, [billId]);
     assert.equal(audit.rows.length, 1);
-    assert.match(JSON.stringify(audit.rows[0].details), /Opening stock was never entered/);
+    assert.match(JSON.stringify(audit.rows[0].details), /Dabara/);
     assert.match(JSON.stringify(audit.rows[0].details), /"shortfall":4/);
+    assert.match(JSON.stringify(audit.rows[0].details), /"shortfall":2/);
     const mv = await pool.query(`SELECT quantity_change, notes FROM public.inventory_movements WHERE reference_id = $1 AND product_id = $2`, [gp.id, PROD_PARTIAL]);
     assert.equal(mv.rows[0].quantity_change, -3);
     assert.match(mv.rows[0].notes, /STOCK EXCEPTION for 2/);
@@ -174,7 +147,7 @@ describe("Stock shortfall dispatch, returns, damaged, missing and closure", { sk
     await assert.rejects(
       () =>
         store.createGatePass(
-          dispatchBody(billId, [{ productId: PROD_ZERO, itemName: "x", quantityDispatched: 1 }], { allowStockShortfall: true, stockShortfallReason: "second try" })
+          dispatchBody(billId, [{ productId: PROD_ZERO, itemName: "x", quantityDispatched: 1 }])
         ),
       /already been dispatched/
     );

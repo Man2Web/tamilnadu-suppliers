@@ -60,8 +60,6 @@ export async function POST(
       ),
       actor,
       allowAdditionalDispatch: body?.allowAdditionalDispatch,
-      allowStockShortfall: body?.allowStockShortfall === true,
-      stockShortfallReason: typeof body?.stockShortfallReason === "string" ? body.stockShortfallReason : undefined,
     });
 
     const updatedBill = await store.getBill(id);
