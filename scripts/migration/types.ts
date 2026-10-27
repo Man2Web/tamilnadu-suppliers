@@ -41,6 +41,8 @@ export interface MigrationOptions {
    * Requires an exact confirmation phrase (see PRODUCTION_CONFIRM_PREFIX in safety.ts).
    */
   productionTarget?: { confirm: string };
+  /** Restrict the run to these tables plus their foreign-key parents; every other table must stay empty. */
+  onlyTables?: string[];
 }
 
 export interface TableDependency {

@@ -59,3 +59,23 @@ describe("production import profile", () => {
     await assert.rejects(assertLiveTargetConnection(client("tamilnadu_suppliers", "10.0.1.5"), prodTarget, false), /non-loopback/);
   });
 });
+
+describe("--only-tables selection", () => {
+  it("selects the tables plus their foreign-key parents, in dependency order", async () => {
+    const { DataMigrator } = await import("../scripts/migration/migrator");
+    const mk = (onlyTables?: string[]) =>
+      new DataMigrator({
+        mode: "inspect",
+        source: { type: "supabase-api" },
+        target: { host: "127.0.0.1", port: 5432, database: "tns_test", user: "u", password: "p" },
+        options: { onlyTables },
+      }, { inspectSchema: async () => ({ accessible: true, tables: [] }), extractTable: async () => ({ tableName: "", records: [], totalCount: 0, extractedPages: 0, durationMs: 0 }), close: async () => {} } as any);
+    const m = mk(["users", "products"]) as any;
+    const order: string[] = m.getSelectedOrder();
+    assert.deepEqual([...order].sort(), ["categories", "products", "users"]);
+    assert.ok(order.indexOf("categories") < order.indexOf("products"));
+    assert.equal((mk() as any).getSelectedOrder().length, 26);
+    assert.throws(() => (mk(["nope"]) as any).getSelectedOrder(), /Unknown table/);
+    await m.close();
+  });
+});

@@ -45,6 +45,7 @@ OPTIONS:
   --batch-size <size>         Batch size for extraction/insertion (default: 1000)
   --confirm-production <phrase>  Unlocks the production target (must equal IMPORT-INTO-tamilnadu_suppliers). Also
                               allows inspect/dry-run/reconcile against it. Target must be empty for import.
+  --only-tables <a,b,...>     Copy only these tables plus their foreign-key parents; all other tables stay empty
   --skip-sessions             Exclude user sessions from migration per cutover policy (default: true)
   --output <filePath>         Optional file path to write full JSON reconciliation report
   --help                      Print this usage screen
@@ -138,6 +139,7 @@ function parseArgs(): { mode: MigrationMode; config: MigrationConfig; outputPath
       skipSessions,
       outputPath,
       verbose: args.includes("--verbose"),
+      onlyTables: getArg("--only-tables")?.split(",").map((t) => t.trim()).filter(Boolean),
       productionTarget: getArg("--confirm-production") ? { confirm: getArg("--confirm-production") as string } : undefined,
     },
   };

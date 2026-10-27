@@ -46,6 +46,29 @@ export class DataMigrator {
   }
 
   /**
+   * Topological order limited to options.onlyTables plus all of their foreign-key parents (all tables when unset).
+   * Tables outside the selection are neither extracted nor written, and are expected to stay empty.
+   */
+  private getSelectedOrder(): string[] {
+    const full = getTopologicalOrder();
+    const only = this.config.options?.onlyTables;
+    if (!only || only.length === 0) return full;
+
+    const unknown = only.filter((t) => !full.includes(t));
+    if (unknown.length > 0) throw new Error(`[MIGRATION ERROR] Unknown table(s) in --only-tables: ${unknown.join(", ")}`);
+
+    const wanted = new Set<string>();
+    const add = (name: string): void => {
+      if (wanted.has(name)) return;
+      wanted.add(name);
+      const def = AUTHORITATIVE_TABLE_GRAPH.find((t) => t.name === name);
+      for (const fk of def?.foreignKeys || []) add(fk.foreignTable);
+    };
+    only.forEach(add);
+    return full.filter((t) => wanted.has(t));
+  }
+
+  /**
    * Main entrypoint routing to the selected mode.
    */
   async execute(): Promise<{
@@ -113,7 +136,7 @@ export class DataMigrator {
    * Mode 2: dry-run — extracts, transforms, simulates database writes in a rolled-back transaction.
    */
   async runDryRun(): Promise<{ success: boolean; report: ReconciliationReport; summary: string; details: any }> {
-    const topologicalOrder = getTopologicalOrder();
+    const topologicalOrder = this.getSelectedOrder();
     const sourceCounts = new Map<string, number>();
     const transformedBatches = new Map<string, Array<Record<string, any>>>();
     const importResults: TableImportResult[] = [];
@@ -188,7 +211,7 @@ export class DataMigrator {
     await assertLiveTargetConnection(this.targetPool, this.config.target, this.productionProfile);
     await this.assertTargetEmptyPrecondition();
 
-    const topologicalOrder = getTopologicalOrder();
+    const topologicalOrder = this.getSelectedOrder();
     const sourceCounts = new Map<string, number>();
     const transformedBatches = new Map<string, Array<Record<string, any>>>();
     const importResults: TableImportResult[] = [];
@@ -284,7 +307,7 @@ export class DataMigrator {
    */
   async runStandaloneReconcile(): Promise<{ success: boolean; report: ReconciliationReport; summary: string }> {
     await assertLiveTargetConnection(this.targetPool, this.config.target, this.productionProfile);
-    const topologicalOrder = getTopologicalOrder();
+    const topologicalOrder = this.getSelectedOrder();
     const sourceCounts = new Map<string, number>();
 
     for (const tableName of topologicalOrder) {
