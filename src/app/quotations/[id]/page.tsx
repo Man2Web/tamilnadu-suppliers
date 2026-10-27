@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useEffect, useState, useRef, use } from "react";
+import React, { useEffect, useMemo, useState, useRef, use } from "react";
+import NumberInput from "@/components/ui/NumberInput";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -74,6 +76,15 @@ export default function QuotationDetailPage({
 
   // Reference lists for dropdowns
   const [products, setProducts] = useState<Product[]>([]);
+  const productOptions = useMemo(
+    () =>
+      products.map((p) => ({
+        value: p.id,
+        label: `${p.name}${p.sizeSpec ? ` (${p.sizeSpec})` : ""} — ₹${p.defaultRentalRate}/${p.unit}`,
+        searchText: p.sizeSpec || "",
+      })),
+    [products]
+  );
 
   // Editable Form State
   const [quotationDate, setQuotationDate] = useState("");
@@ -161,10 +172,6 @@ export default function QuotationDetailPage({
   const [advancePaidInput, setAdvancePaidInput] = useState<number>(0);
   const [paymentModeInput, setPaymentModeInput] = useState<string>("CASH");
   const [converting, setConverting] = useState(false);
-
-  const [showReviseModal, setShowReviseModal] = useState(false);
-  const [revisionNotesInput, setRevisionNotesInput] = useState("");
-  const [revising, setRevising] = useState(false);
 
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
@@ -513,6 +520,28 @@ export default function QuotationDetailPage({
     triggerAutoSave();
   };
 
+  // A note can come before the first product: insert at the top and renumber
+  const handleAddNoteAtTop = () => {
+    if (!canEdit) return;
+    setLines((prev) =>
+      [
+        {
+          id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          entryType: "note" as const,
+          position: 1,
+          text: "",
+          itemName: "",
+          quantity: 0,
+          days: 0,
+          unitPrice: 0,
+          amount: 0,
+        },
+        ...prev,
+      ].map((l, i) => ({ ...l, position: i + 1 }))
+    );
+    triggerAutoSave();
+  };
+
   const handleRemoveLine = (lineId: string) => {
     if (!canEdit) return;
     setLines((prev) => {
@@ -608,74 +637,6 @@ export default function QuotationDetailPage({
       alert(e.message);
     } finally {
       setConverting(false);
-    }
-  };
-
-  // Save Explicit New Revision
-  const handleSaveRevision = async () => {
-    if (!quotation || !canEdit) return;
-    setRevising(true);
-    try {
-      const validLines = lines.map((l, idx) => ({ ...l, position: idx + 1 }));
-      const validItems = validLines
-        .filter(
-          (l) =>
-            (l.entryType === "product" && l.productId && (l.quantity || 0) > 0) ||
-            (l.entryType === "note" && (l.text || "").trim().length > 0)
-        )
-        .map((l) => ({
-          id: l.id,
-          entryType: l.entryType,
-          position: l.position,
-          productId: l.entryType === "product" ? l.productId : undefined,
-          itemName: l.entryType === "note" ? (l.text || "").trim() : l.itemName,
-          text: l.entryType === "note" ? (l.text || "").trim() : undefined,
-          sizeSpec: l.sizeSpec || "",
-          quantity: l.entryType === "note" ? 0 : Number(l.quantity) || 1,
-          days: l.entryType === "note" ? 0 : Number(l.days) || 1,
-          unitPrice: l.entryType === "note" ? 0 : Number(l.unitPrice) || 0,
-          amount: l.entryType === "note" ? 0 : Number(l.amount) || 0,
-          deliveryLocation: l.deliveryLocation || deliveryLocation || null,
-          notes: l.notes || null,
-        }));
-
-      const noteTexts = validLines
-        .filter((l) => l.entryType === "note" && (l.text || "").trim())
-        .map((l) => (l.text || "").trim());
-
-      const res = await fetch(`/api/quotations/${quotation.id}/revise`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reason: revisionNotesInput.trim() || "Customer requested changes",
-          rentalStartDate,
-          rentalEndDate,
-          rentalDays,
-          items: validItems,
-          documentLines: validItems,
-          notesList: noteTexts,
-          transportCharges,
-          loadingCharges,
-          laborCharges,
-          otherCharges,
-          discountAmount,
-          advanceRequired,
-          securityDepositRequired,
-        }),
-      });
-      const data = await res.json();
-      if (data.success && data.quotation) {
-        setQuotation(data.quotation);
-        setShowReviseModal(false);
-        setRevisionNotesInput("");
-        alert(`New Revision Rev ${data.quotation.revisionNumber} saved successfully!`);
-      } else {
-        alert(data.error || "Failed to save revision");
-      }
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setRevising(false);
     }
   };
 
@@ -828,17 +789,6 @@ export default function QuotationDetailPage({
             <History className="w-3.5 h-3.5 text-purple-600" />
             <span>Activity History</span>
           </a>
-
-          {/* Save New Revision Button - ONLY available before conversion */}
-          {canEdit && (
-            <button
-              onClick={() => setShowReviseModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold border border-indigo-200 transition"
-            >
-              <Layers className="w-3.5 h-3.5 text-indigo-600" />
-              <span>New Revision</span>
-            </button>
-          )}
 
           {/* Convert to Bill Button - ONLY available before conversion */}
           {canEdit && (
@@ -1059,6 +1009,7 @@ export default function QuotationDetailPage({
               )}
             </div>
 
+            {isGst && (
             <div>
               <label className="block text-slate-500 font-medium">Customer GSTIN</label>
               {canEdit ? (
@@ -1076,6 +1027,7 @@ export default function QuotationDetailPage({
                 <div className="font-mono text-slate-700 mt-0.5">{customerGstin || "Unregistered / Consumer"}</div>
               )}
             </div>
+            )}
           </div>
         </div>
 
@@ -1140,6 +1092,15 @@ export default function QuotationDetailPage({
           </div>
           {canEdit && (
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAddNoteAtTop}
+                title="Add a note above the first product"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 transition"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+                <span>Note at Top</span>
+              </button>
               <button
                 type="button"
                 onClick={() => handleAddNote()}
@@ -1261,18 +1222,16 @@ export default function QuotationDetailPage({
                       <td className="py-2.5 px-3">
                         {canEdit ? (
                           <div className="space-y-1">
-                            <select
+                            <SearchableSelect
+                              ariaLabel="Select rental product"
                               value={line.productId || ""}
-                              onChange={(e) => handleProductSelect(line.id, e.target.value)}
-                              className="w-full border border-slate-200 rounded px-2 py-1 text-xs font-semibold text-slate-900 bg-white focus:ring-1 focus:ring-indigo-500"
-                            >
-                              <option value="">-- Choose Rental Product --</option>
-                              {products.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.name} {p.sizeSpec ? `(${p.sizeSpec})` : ""} — ₹{p.defaultRentalRate}/{p.unit}
-                                </option>
-                              ))}
-                            </select>
+                              onChange={(v) => handleProductSelect(line.id, v)}
+                              placeholder="-- Choose Rental Product --"
+                              searchPlaceholder="Search product by name or size..."
+                              emptyText="No products match your search"
+                              options={productOptions}
+                              className="text-xs"
+                            />
                             <input
                               type="text"
                               value={line.sizeSpec || ""}
@@ -1317,8 +1276,8 @@ export default function QuotationDetailPage({
                       {/* Quantity */}
                       <td className="py-2.5 px-3 text-center">
                         {canEdit ? (
-                          <input
-                            type="number"
+                          <NumberInput
+                            
                             min={1}
                             value={line.quantity || ""}
                             onChange={(e) =>
@@ -1334,8 +1293,8 @@ export default function QuotationDetailPage({
                       {/* Days */}
                       <td className="py-2.5 px-3 text-center">
                         {canEdit ? (
-                          <input
-                            type="number"
+                          <NumberInput
+                            
                             min={1}
                             value={line.days || ""}
                             onChange={(e) =>
@@ -1351,10 +1310,10 @@ export default function QuotationDetailPage({
                       {/* Daily Rate */}
                       <td className="py-2.5 px-3 text-right">
                         {canEdit ? (
-                          <input
-                            type="number"
+                          <NumberInput
+                            
                             min={0}
-                            step="0.01"
+                           step="0.01"
                             value={line.unitPrice || ""}
                             onChange={(e) =>
                               handleProductFieldChange(line.id, "unitPrice", e.target.value)
@@ -1491,9 +1450,10 @@ export default function QuotationDetailPage({
             <div className="flex items-center justify-between text-slate-700">
               <span>Transportation Charges:</span>
               {canEdit ? (
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min={0}
+                  step="0.01"
                   value={transportCharges || ""}
                   onChange={(e) => {
                     setTransportCharges(Number(e.target.value) || 0);
@@ -1513,9 +1473,10 @@ export default function QuotationDetailPage({
             <div className="flex items-center justify-between text-slate-700">
               <span>Loading / Unloading:</span>
               {canEdit ? (
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min={0}
+                  step="0.01"
                   value={loadingCharges || ""}
                   onChange={(e) => {
                     setLoadingCharges(Number(e.target.value) || 0);
@@ -1535,9 +1496,10 @@ export default function QuotationDetailPage({
             <div className="flex items-center justify-between text-slate-700">
               <span>Labor / Setup Charges:</span>
               {canEdit ? (
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min={0}
+                  step="0.01"
                   value={laborCharges || ""}
                   onChange={(e) => {
                     setLaborCharges(Number(e.target.value) || 0);
@@ -1557,9 +1519,10 @@ export default function QuotationDetailPage({
             <div className="flex items-center justify-between text-slate-700">
               <span>Other Charges:</span>
               {canEdit ? (
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min={0}
+                  step="0.01"
                   value={otherCharges || ""}
                   onChange={(e) => {
                     setOtherCharges(Number(e.target.value) || 0);
@@ -1579,9 +1542,10 @@ export default function QuotationDetailPage({
             <div className="flex items-center justify-between text-slate-700">
               <span>Special Discount:</span>
               {canEdit ? (
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min={0}
+                  step="0.01"
                   value={discountAmount || ""}
                   onChange={(e) => {
                     setDiscountAmount(Number(e.target.value) || 0);
@@ -1649,9 +1613,10 @@ export default function QuotationDetailPage({
               <div>
                 <label className="block text-slate-500 font-medium text-[11px]">Advance Required (₹)</label>
                 {canEdit ? (
-                  <input
-                    type="number"
+                  <NumberInput
+                    
                     min={0}
+                    step="0.01"
                     value={advanceRequired || ""}
                     onChange={(e) => {
                       setAdvanceRequired(Number(e.target.value) || 0);
@@ -1669,9 +1634,10 @@ export default function QuotationDetailPage({
               <div>
                 <label className="block text-slate-500 font-medium text-[11px]">Security Deposit (₹)</label>
                 {canEdit ? (
-                  <input
-                    type="number"
+                  <NumberInput
+                    
                     min={0}
+                    step="0.01"
                     value={securityDepositRequired || ""}
                     onChange={(e) => {
                       setSecurityDepositRequired(Number(e.target.value) || 0);
@@ -1745,9 +1711,10 @@ export default function QuotationDetailPage({
                 <label className="block text-slate-700 font-semibold mb-1">
                   Advance Paid Amount (₹)
                 </label>
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min="0"
+                  step="0.01"
                   max={liveFinancials.grandTotal}
                   value={advancePaidInput || ""}
                   onChange={(e) => setAdvancePaidInput(Number(e.target.value) || 0)}
@@ -1794,73 +1761,6 @@ export default function QuotationDetailPage({
                   <>
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     <span>Confirm & Generate Bill</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Revise Modal */}
-      {showReviseModal && canEdit && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <Layers className="w-5 h-5 text-indigo-600" />
-                <h3 className="text-base font-bold text-slate-900">
-                  Save as New Revision (Rev {(quotation.revisionNumber || 1) + 1})
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowReviseModal(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                ✕
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-600">
-              This will snapshot the current state into revision history and increment the revision version counter.
-            </p>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Reason / Note for Revision
-              </label>
-              <textarea
-                value={revisionNotesInput}
-                onChange={(e) => setRevisionNotesInput(e.target.value)}
-                placeholder="e.g. Customer requested 2 extra canopies and extended duration"
-                rows={3}
-                className="w-full border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setShowReviseModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveRevision}
-                disabled={revising}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition"
-              >
-                {revising ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Save Revision</span>
                   </>
                 )}
               </button>

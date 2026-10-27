@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { ModulePermissionId } from "@/lib/types/permissions";
+import { shortcutHint } from "./useGlobalShortcuts";
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -181,7 +182,12 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
                       }`}
                     >
                       <Icon className={`w-4 h-4 ${isActive ? "text-white" : "text-slate-500"}`} />
-                      <span>{item.name}</span>
+                      <span className="flex-1">{item.name}</span>
+                      {item.href === "/customers" && (
+                        <kbd className={`text-[10px] font-mono px-1 rounded border ${isActive ? "border-blue-300 text-blue-100" : "border-slate-200 text-slate-400"}`}>
+                          {shortcutHint("c")}
+                        </kbd>
+                      )}
                     </Link>
                   );
                 })}

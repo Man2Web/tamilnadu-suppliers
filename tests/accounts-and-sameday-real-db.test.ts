@@ -169,6 +169,45 @@ describe("Accounts and same-day rentals on real PostgreSQL", { skip: !testDb.isC
     assert.deepEqual(qrows.map((r) => [r.entry_type, r.quantity]), [["product", 10], ["note", 0]]);
   });
 
+  it("a note can come before the first product: order survives save, reopen, edit and conversion; the note adds no quantity or amount", async () => {
+    const line = { productId: `${P}prod`, itemName: `${P}Chair`, sizeSpec: "std", quantity: 10, days: 1, unitPrice: 20, amount: 200 };
+    const lead = { entryType: "note", text: "VIT College - Main Auditorium", itemName: "VIT College - Main Auditorium", position: 1 };
+    const tail = { entryType: "note", text: "Deliver before 8 AM", itemName: "Deliver before 8 AM", position: 3 };
+    const prod = { ...line, position: 2 };
+
+    const quote = await store.createQuotation({
+      companyId: COMPANY_ID, customerName: `${P}Cust`, customerPhone: "9000000059", customerAddress: "x",
+      rentalStartDate: "2026-11-05", rentalEndDate: "2026-11-06", items: [lead, prod, tail], documentLines: [lead, prod, tail],
+    });
+    const order = async (id: string, table: string, key: string) =>
+      (await pool.query(`SELECT entry_type, quantity, amount, text FROM public.${table} WHERE ${key} = $1 ORDER BY position`, [id])).rows;
+    let rows = await order(quote.id, "quotation_items", "quotation_id");
+    assert.deepEqual(rows.map((r) => r.entry_type), ["note", "product", "note"]);
+    assert.equal(rows[0].text, "VIT College - Main Auditorium");
+    assert.deepEqual(rows.filter((r) => r.entry_type === "note").map((r) => [Number(r.quantity), Number(r.amount)]), [[0, 0], [0, 0]]);
+    assert.equal(Number((await pool.query(`SELECT subtotal FROM public.quotations WHERE id = $1`, [quote.id])).rows[0].subtotal), 200);
+
+    // Reopened through the store: same order
+    const reopened = await store.getQuotation(quote.id);
+    assert.deepEqual((reopened!.documentLines || []).map((l: any) => l.entryType), ["note", "product", "note"]);
+
+    // Edit: add a second leading note (what "Note at Top" does) and renumber
+    const lead2 = { entryType: "note", text: "Event: Convocation 2026", itemName: "Event: Convocation 2026", position: 1 };
+    const lines = [lead2, { ...lead, position: 2 }, { ...prod, position: 3 }, { ...tail, position: 4 }];
+    await store.updateQuotation(quote.id, { items: lines, documentLines: lines } as never);
+    rows = await order(quote.id, "quotation_items", "quotation_id");
+    assert.deepEqual(rows.map((r) => r.text || "product"), ["Event: Convocation 2026", "VIT College - Main Auditorium", "product", "Deliver before 8 AM"]);
+
+    // Direct bill with a leading note: note stays first, quantity 0, total unchanged
+    const bill = await store.createBill({
+      companyId: COMPANY_ID, customerName: `${P}Cust`, customerPhone: "9000000059", customerAddress: "x",
+      rentalStartDate: "2026-11-05", rentalEndDate: "2026-11-06", items: [lead, prod], documentLines: [lead, prod],
+    });
+    const brows = await order(bill.id, "bill_items", "bill_id");
+    assert.deepEqual(brows.map((r) => [r.entry_type, Number(r.quantity)]), [["note", 0], ["product", 10]]);
+    assert.equal(Number((await pool.query(`SELECT subtotal FROM public.bills WHERE id = $1`, [bill.id])).rows[0].subtotal), 200);
+  });
+
   it("page flow after dispatch: Record Return, then the page's autosave decides the damage charge without errors or stock changes", async () => {
     const actor = { id: "system", name: "Test", role: "SUPER_ADMIN" };
     const line = { productId: `${P}prod`, itemName: `${P}Chair`, sizeSpec: "std", quantity: 10, days: 1, unitPrice: 20, amount: 200 };

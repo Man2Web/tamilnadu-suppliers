@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useState, use } from "react";
+import NumberInput from "@/components/ui/NumberInput";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import Link from "next/link";
 import {
   Receipt,
@@ -909,12 +911,29 @@ export default function BillWorkspacePage({
     if (!confirm("Confirm dispatching items to customer? This transitions status to Out on Rent and reserves equipment from warehouse.")) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/bills/${bill.id}/dispatch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
+      const send = (extra: Record<string, unknown> = {}) =>
+        fetch(`/api/bills/${bill.id}/dispatch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(extra),
+        });
+      let res = await send();
+      let data = await res.json();
+      // Recorded stock is short: an administrator can approve a logged exception with a reason (checked again on the server)
+      if (!data.success && /Insufficient stock/i.test(String(data.error || "")) && ["ADMIN", "SUPER_ADMIN", "OWNER"].includes(String(currentUser?.role || "").toUpperCase())) {
+        const reason = window.prompt(
+          `${data.error}
+
+The recorded stock is lower than the quantity being dispatched. To dispatch anyway, type the reason (it is saved in the audit history). Leave empty to cancel.`
+        );
+        if (reason && reason.trim().length >= 5) {
+          res = await send({ allowStockShortfall: true, stockShortfallReason: reason.trim() });
+          data = await res.json();
+        } else if (reason !== null) {
+          setActionError("A reason of at least 5 characters is needed to dispatch beyond the recorded stock.");
+          return;
+        }
+      }
       if (data.success) {
         setActionSuccess("Products dispatched successfully! Rental status is now Out on Rent.");
         fetchBill();
@@ -1751,9 +1770,10 @@ export default function BillWorkspacePage({
             <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3 text-xs">
               <div>
                 <label className="block text-slate-600 font-semibold mb-1">Amount (₹) *</label>
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min="1"
+                  step="0.01"
                   value={paymentAmount || ""}
                   onChange={(e) => setPaymentAmount(Number(e.target.value) || 0)}
                   placeholder="0.00"

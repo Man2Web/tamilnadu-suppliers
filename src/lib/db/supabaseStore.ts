@@ -2389,6 +2389,25 @@ export class SupabaseStore {
       );
     }
 
+    // Every dispatched unit must be accounted for (returned good, damaged or missing) before the bill can be closed
+    const billGatePasses = await this.getGatePassesByBillId(billId);
+    const outstandingGoods: string[] = [];
+    for (const gp of billGatePasses || []) {
+      for (const gi of gp.items || []) {
+        const outstanding =
+          Number(gi.quantityDispatched || 0) -
+          Number(gi.quantityReturned || 0) -
+          Number(gi.quantityDamaged || 0) -
+          Number(gi.quantityMissing || 0);
+        if (outstanding > 0) outstandingGoods.push(`${gi.itemName} x ${outstanding}`);
+      }
+    }
+    if (outstandingGoods.length > 0) {
+      throw new Error(
+        `Cannot close bill: some dispatched items are not yet accounted for (${outstandingGoods.join(", ")}). Record each as returned, damaged or missing first.`
+      );
+    }
+
     if (bill.balanceDue > 0) {
       if (!payload.paymentReceivedInFull && !payload.allowOutstandingClose && !payload.forceClose) {
         throw new Error(
@@ -3482,6 +3501,16 @@ export class SupabaseStore {
     if (error) throw new Error(friendlyDbError("creating gate pass", error));
 
     const createdItems: GatePassItem[] = [];
+    const shortfalls: Array<{ productId: string; productName: string; requested: number; recordedAvailable: number; shortfall: number }> = [];
+    // The flag only counts for an administrator; the actor is the authenticated session, never a client-supplied value.
+    const dispatchActor = this.resolveActor(data.actor);
+    const dispatchRole = String(dispatchActor.role || "").toUpperCase();
+    const shortfallAllowedRole = dispatchRole === "ADMIN" || dispatchRole === "SUPER_ADMIN" || dispatchRole === "OWNER";
+    const shortfallReason = String(data.stockShortfallReason || "").trim();
+    const shortfallApproved = data.allowStockShortfall === true && shortfallAllowedRole;
+    if (data.allowStockShortfall === true && shortfallAllowedRole && shortfallReason.length < 5) {
+      throw new Error("Enter the reason for dispatching beyond the recorded stock (at least 5 characters).");
+    }
     if (data.items && Array.isArray(data.items) && data.items.length > 0) {
       for (const it of data.items) {
         const qty = Number(it.quantityDispatched || it.quantity || 1);
@@ -3495,12 +3524,21 @@ export class SupabaseStore {
             throw new Error(`Product ${it.productId} not found for dispatch.`);
           }
 
-          // 3b. Guard against insufficient stock (prevent negative stock)
+          // 3b. Guard against insufficient stock (prevent negative stock). An administrator may approve an explicit,
+          // audited exception ("stock shortfall dispatch") when the recorded availability is wrong or zero: the goods really
+          // leave, the shortfall is logged with a reason, and recorded stock is never pushed below zero or silently topped up.
           const currentAvail = prod.availableQuantity || 0;
-          if (currentAvail < qty) {
-            throw new Error(
-              `Insufficient stock for "${prod.name}": requested ${qty}, available ${currentAvail}.`
-            );
+          const shortfall = Math.max(0, qty - currentAvail);
+          if (shortfall > 0) {
+            if (!shortfallApproved) {
+              throw new Error(
+                `Insufficient stock for "${prod.name}": requested ${qty}, available ${currentAvail}.` +
+                  (shortfallAllowedRole
+                    ? " You can dispatch anyway by approving a stock exception and entering the reason."
+                    : " Ask an administrator to approve a stock exception if the goods are really being dispatched.")
+              );
+            }
+            shortfalls.push({ productId: it.productId, productName: prod.name, requested: qty, recordedAvailable: currentAvail, shortfall });
           }
 
           // 3c. Insert into gate_pass_items
@@ -3525,8 +3563,8 @@ export class SupabaseStore {
             createdItems.push(mapGatePassItemFromRow(gpItemRow));
           }
 
-          // 3d. Adjust product stock
-          const newAvail = currentAvail - qty;
+          // 3d. Adjust product stock: all dispatched units become "rented"; available drops only by what was recorded
+          const newAvail = currentAvail - Math.min(currentAvail, qty);
           const newRented = (prod.rentedQuantity || 0) + qty;
           await this.updateProduct(it.productId, {
             availableQuantity: newAvail,
@@ -3537,11 +3575,14 @@ export class SupabaseStore {
           const { error: moveErr } = await this.supabase.from("inventory_movements").insert({
             product_id: it.productId,
             movement_type: "DISPATCH",
-            quantity_change: -qty,
+            quantity_change: -Math.min(currentAvail, qty),
             reference_type: "GATE_PASS",
             reference_id: id,
             balance_after: newAvail,
-            notes: `Dispatched ${qty} units under Gate Pass ${gatePassNumber}`,
+            notes:
+              shortfall > 0
+                ? `Dispatched ${qty} units under Gate Pass ${gatePassNumber}; only ${Math.min(currentAvail, qty)} were recorded as available - STOCK EXCEPTION for ${shortfall} (${shortfallReason})`
+                : `Dispatched ${qty} units under Gate Pass ${gatePassNumber}`,
           });
 
           if (moveErr) throw new Error(friendlyDbError("inserting inventory movement", moveErr));
@@ -3569,6 +3610,25 @@ export class SupabaseStore {
           }
         }
       }
+    }
+
+    if (shortfalls.length > 0) {
+      // Written inside the same transaction: a dispatch that used the exception cannot exist without its audit trail
+      await this.recordAuditLog({
+        entityType: data.billId ? "BILL" : "GATE_PASS",
+        entityId: data.billId || id,
+        entityNumber: bill?.billNumber || gatePassNumber,
+        customerName: customerName,
+        action: "STOCK_SHORTFALL_DISPATCH",
+        actionLabel: `Dispatched beyond recorded stock (${gatePassNumber})`,
+        actor: dispatchActor,
+        details: {
+          summary: `${dispatchActor.name} approved dispatching more than the recorded available stock under Gate Pass #${gatePassNumber}: ${shortfallReason}`,
+          gatePassNumber,
+          reason: shortfallReason,
+          items: shortfalls,
+        },
+      });
     }
 
     if (data.billId && bill) {

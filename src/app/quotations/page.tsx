@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   Search,
   History,
-  Edit3,
   Calendar,
   X,
   Eye,
@@ -31,15 +30,6 @@ export default function QuotationsPage() {
 
   // History Modal State
   const [historyQuote, setHistoryQuote] = useState<Quotation | null>(null);
-
-  // Revise Modal State
-  const [reviseQuote, setReviseQuote] = useState<Quotation | null>(null);
-  const [reviseStartDate, setReviseStartDate] = useState("");
-  const [reviseEndDate, setReviseEndDate] = useState("");
-  const [reviseDays, setReviseDays] = useState(1);
-  const [reviseTransport, setReviseTransport] = useState(0);
-  const [reviseNotes, setReviseNotes] = useState("");
-  const [reviseSubmitting, setReviseSubmitting] = useState(false);
 
   const loadQuotations = () => {
     fetch(`/api/quotations?status=${encodeURIComponent(statusFilter)}`)
@@ -77,45 +67,6 @@ export default function QuotationsPage() {
       alert(e.message);
     } finally {
       setConvertingId(null);
-    }
-  };
-
-  const handleOpenRevise = (q: Quotation) => {
-    setReviseQuote(q);
-    setReviseStartDate(q.rentalStartDate);
-    setReviseEndDate(q.rentalEndDate);
-    setReviseDays(q.rentalDays || 1);
-    setReviseTransport(q.transportCharges || 0);
-    setReviseNotes(q.notes || "");
-  };
-
-  const handleSaveRevision = async () => {
-    if (!reviseQuote) return;
-    setReviseSubmitting(true);
-    try {
-      const res = await fetch(`/api/quotations/${reviseQuote.id}/revise`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rentalStartDate: reviseStartDate,
-          rentalEndDate: reviseEndDate,
-          rentalDays: reviseDays,
-          transportCharges: reviseTransport,
-          notes: reviseNotes,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        alert(`Saved new revision! Quotation is now Revision #${data.quotation.revisionNumber}`);
-        setReviseQuote(null);
-        loadQuotations();
-      } else {
-        alert(data.error || "Failed to revise quotation");
-      }
-    } catch (e: any) {
-      alert(e.message);
-    } finally {
-      setReviseSubmitting(false);
     }
   };
 
@@ -291,18 +242,6 @@ export default function QuotationsPage() {
                         </button>
                       )}
 
-                      {/* Revise Quotation Action */}
-                      {q.status !== "CONVERTED" && !q.convertedBillId && (
-                        <button
-                          onClick={() => handleOpenRevise(q)}
-                          className="inline-flex items-center gap-1 text-[11px] bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 px-2 py-1 rounded transition font-semibold"
-                          title="Revise Quotation"
-                        >
-                          <Edit3 className="w-3 h-3 text-amber-600" />
-                          <span>Revise</span>
-                        </button>
-                      )}
-
                       <a
                         href={`/api/documents/quotation/${q.id}/pdf`}
                         target="_blank"
@@ -410,104 +349,6 @@ export default function QuotationsPage() {
                 className="px-4 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg transition"
               >
                 Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Revise Quotation Modal */}
-      {reviseQuote && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl border border-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Edit3 className="w-4 h-4 text-amber-600" />
-                  Save New Revision — {reviseQuote.quotationNumber}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Saving increments revision from Rev {reviseQuote.revisionNumber || 1} to Rev {(reviseQuote.revisionNumber || 1) + 1} and preserves previous snapshot.
-                </p>
-              </div>
-              <button
-                onClick={() => setReviseQuote(null)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Rental Start Date</label>
-                  <input
-                    type="date"
-                    value={reviseStartDate}
-                    onChange={(e) => setReviseStartDate(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Rental End Date</label>
-                  <input
-                    type="date"
-                    value={reviseEndDate}
-                    onChange={(e) => setReviseEndDate(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Rental Days</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={reviseDays}
-                    onChange={(e) => setReviseDays(Number(e.target.value) || 1)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-600 font-semibold mb-1">Transport Charges (₹)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={reviseTransport}
-                    onChange={(e) => setReviseTransport(Number(e.target.value) || 0)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-600 font-semibold mb-1">Revision Notes / Reason</label>
-                <textarea
-                  rows={3}
-                  value={reviseNotes}
-                  onChange={(e) => setReviseNotes(e.target.value)}
-                  placeholder="e.g., Customer requested revised duration and transport rate"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-              <button
-                onClick={() => setReviseQuote(null)}
-                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveRevision}
-                disabled={reviseSubmitting}
-                className="px-4 py-1.5 text-xs bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg shadow-xs transition"
-              >
-                Save as Revision {(reviseQuote.revisionNumber || 1) + 1}
               </button>
             </div>
           </div>

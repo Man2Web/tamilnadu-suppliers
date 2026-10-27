@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { shortcutHint } from "./useGlobalShortcuts";
 import {
   Plus,
   Menu,
@@ -187,6 +188,7 @@ export default function Navbar({ onToggleSidebar, isSidebarOpen }: NavbarProps) 
           >
             <Plus className="w-3.5 h-3.5 text-indigo-600" />
             <span className="hidden sm:inline">New Quotation</span>
+            <kbd className="hidden lg:inline text-[10px] font-mono px-1 rounded border border-indigo-200 text-indigo-500">{shortcutHint("q")}</kbd>
             <span className="sm:hidden">Quote</span>
           </Link>
         )}
@@ -198,6 +200,7 @@ export default function Navbar({ onToggleSidebar, isSidebarOpen }: NavbarProps) 
           >
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">New Bill</span>
+            <kbd className="hidden lg:inline text-[10px] font-mono px-1 rounded border border-blue-300 text-blue-100">{shortcutHint("b")}</kbd>
             <span className="sm:hidden">Bill</span>
           </Link>
         )}

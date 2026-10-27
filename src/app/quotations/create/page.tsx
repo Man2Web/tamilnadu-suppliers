@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import NumberInput from "@/components/ui/NumberInput";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { useRouter } from "next/navigation";
 import {
   FileText,
@@ -136,6 +138,16 @@ export default function CreateQuotationPage() {
     );
   }, [rentalStartDate, rentalEndDate]);
 
+  const productOptions = useMemo(
+    () =>
+      products.map((p) => ({
+        value: p.id,
+        label: `${p.name}${p.sizeSpec ? ` (${p.sizeSpec})` : ""} - ₹${p.defaultRentalRate}/${p.unit}`,
+        searchText: p.sizeSpec || "",
+      })),
+    [products]
+  );
+
   const selectedCompany = companies.find((c) => c.id === selectedCompanyId) || companies[0];
 
   const handleCustomerSelect = (custId: string) => {
@@ -182,6 +194,26 @@ export default function CreateQuotationPage() {
         amount: 0,
       },
     ]);
+  };
+
+  // A note can come before the first product (e.g. venue or event heading): insert it at the top and renumber
+  const handleAddNoteAtTop = () => {
+    setLines((prev) =>
+      [
+        {
+          id: generateUuid(),
+          entryType: "note" as const,
+          position: 1,
+          text: "",
+          itemName: "",
+          quantity: 0,
+          days: 0,
+          unitPrice: 0,
+          amount: 0,
+        },
+        ...prev,
+      ].map((l, i) => ({ ...l, position: i + 1 }))
+    );
   };
 
   const handleRemoveLine = (lineId: string) => {
@@ -320,7 +352,7 @@ export default function CreateQuotationPage() {
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         customerAddress: customerAddress.trim(),
-        customerGstin: customerGstin.trim() || null,
+        customerGstin: isGstRegistered(selectedCompany?.gstType) ? customerGstin.trim() || null : null,
         deliveryLocation: deliveryLocation.trim() || null,
         eventName: eventName.trim() || null,
         deliveryDate: deliveryDate || null,
@@ -430,18 +462,16 @@ export default function CreateQuotationPage() {
               <label className="block text-slate-700 font-semibold mb-1">
                 Select Existing Customer (Optional)
               </label>
-              <select
+              <SearchableSelect
+                ariaLabel="Select existing customer"
                 value={selectedCustomerId}
-                onChange={(e) => handleCustomerSelect(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900"
-              >
-                <option value="">-- Choose Customer or Enter Below --</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.mobile})
-                  </option>
-                ))}
-              </select>
+                onChange={handleCustomerSelect}
+                placeholder="-- Choose Customer or Enter Below --"
+                searchPlaceholder="Search customer by name or mobile..."
+                emptyText="No customers match your search"
+                clearLabel="-- Enter customer details manually --"
+                options={customers.map((c) => ({ value: c.id, label: `${c.name} (${c.mobile})`, searchText: `${c.gstin || ""} ${c.billingAddress || ""}` }))}
+              />
             </div>
           </div>
 
@@ -481,6 +511,7 @@ export default function CreateQuotationPage() {
               />
             </div>
 
+            {isGstRegistered(selectedCompany?.gstType) && (
             <div>
               <label className="block text-slate-700 font-semibold mb-1">Customer GSTIN</label>
               <input
@@ -491,6 +522,7 @@ export default function CreateQuotationPage() {
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 font-mono uppercase"
               />
             </div>
+            )}
           </div>
         </div>
 
@@ -594,6 +626,15 @@ export default function CreateQuotationPage() {
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <button
                 type="button"
+                onClick={handleAddNoteAtTop}
+                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg border border-slate-300 transition"
+                title="Add a note above the first product"
+              >
+                <ArrowUp className="w-3.5 h-3.5" />
+                <span>Note at Top</span>
+              </button>
+              <button
+                type="button"
                 onClick={handleAddNote}
                 className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg border border-slate-300 transition"
               >
@@ -690,19 +731,16 @@ export default function CreateQuotationPage() {
                         {idx + 1}
                       </td>
                       <td className="p-2">
-                        <select
-                          value={line.productId}
-                          onChange={(e) => handleProductSelect(line.id, e.target.value)}
-                          className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 text-slate-900 font-medium"
+                        <SearchableSelect
+                          ariaLabel="Select product"
                           required
-                        >
-                          <option value="">-- Select Product --</option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name} {p.sizeSpec ? `(${p.sizeSpec})` : ""} - ₹{p.defaultRentalRate}/{p.unit}
-                            </option>
-                          ))}
-                        </select>
+                          value={line.productId}
+                          onChange={(v) => handleProductSelect(line.id, v)}
+                          placeholder="-- Select Product --"
+                          searchPlaceholder="Search product by name or size..."
+                          emptyText="No products match your search"
+                          options={productOptions}
+                        />
                       </td>
                       <td className="p-2">
                         <input
@@ -723,8 +761,8 @@ export default function CreateQuotationPage() {
                         />
                       </td>
                       <td className="p-2 text-center">
-                        <input
-                          type="number"
+                        <NumberInput
+                          
                           min="1"
                           value={line.quantity || ""}
                           onChange={(e) => handleItemChange(line.id, "quantity", e.target.value)}
@@ -733,8 +771,8 @@ export default function CreateQuotationPage() {
                         />
                       </td>
                       <td className="p-2 text-center">
-                        <input
-                          type="number"
+                        <NumberInput
+                          
                           min="1"
                           value={line.days || ""}
                           onChange={(e) => handleItemChange(line.id, "days", e.target.value)}
@@ -743,10 +781,10 @@ export default function CreateQuotationPage() {
                         />
                       </td>
                       <td className="p-2 text-right">
-                        <input
-                          type="number"
+                        <NumberInput
+                          
                           min="0"
-                          step="0.01"
+                         step="0.01"
                           value={line.unitPrice || ""}
                           onChange={(e) => handleItemChange(line.id, "unitPrice", e.target.value)}
                           className="w-20 bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 font-mono text-right"
@@ -806,9 +844,10 @@ export default function CreateQuotationPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-slate-600 mb-1">Transport Charges (₹)</label>
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min="0"
+                  step="0.01"
                   value={transportCharges || ""}
                   onChange={(e) => setTransportCharges(Number(e.target.value) || 0)}
                   placeholder="0.00"
@@ -817,9 +856,10 @@ export default function CreateQuotationPage() {
               </div>
               <div>
                 <label className="block text-slate-600 mb-1">Loading Charges (₹)</label>
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min="0"
+                  step="0.01"
                   value={loadingCharges || ""}
                   onChange={(e) => setLoadingCharges(Number(e.target.value) || 0)}
                   placeholder="0.00"
@@ -828,9 +868,10 @@ export default function CreateQuotationPage() {
               </div>
               <div>
                 <label className="block text-slate-600 mb-1">Labor Charges (₹)</label>
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min="0"
+                  step="0.01"
                   value={laborCharges || ""}
                   onChange={(e) => setLaborCharges(Number(e.target.value) || 0)}
                   placeholder="0.00"
@@ -839,9 +880,10 @@ export default function CreateQuotationPage() {
               </div>
               <div>
                 <label className="block text-slate-600 mb-1">Discount (₹)</label>
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min="0"
+                  step="0.01"
                   value={discountAmount || ""}
                   onChange={(e) => setDiscountAmount(Number(e.target.value) || 0)}
                   placeholder="0.00"
@@ -850,9 +892,10 @@ export default function CreateQuotationPage() {
               </div>
               <div className="pt-2 border-t border-slate-100">
                 <label className="block text-slate-700 font-bold mb-1">Advance Required (₹)</label>
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min="0"
+                  step="0.01"
                   value={advanceRequired || ""}
                   onChange={(e) => setAdvanceRequired(Number(e.target.value) || 0)}
                   placeholder="0.00"
@@ -861,9 +904,10 @@ export default function CreateQuotationPage() {
               </div>
               <div className="pt-2 border-t border-slate-100">
                 <label className="block text-slate-700 font-bold mb-1">Security Deposit (₹)</label>
-                <input
-                  type="number"
+                <NumberInput
+                  
                   min="0"
+                  step="0.01"
                   value={securityDepositRequired || ""}
                   onChange={(e) => setSecurityDepositRequired(Number(e.target.value) || 0)}
                   placeholder="0.00"

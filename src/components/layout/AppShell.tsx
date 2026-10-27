@@ -4,9 +4,11 @@ import React, { useState } from "react";
 import { usePathname } from "next/navigation";
 import Navbar from "./Navbar";
 import Sidebar from "./Sidebar";
+import { useGlobalShortcuts } from "./useGlobalShortcuts";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  useGlobalShortcuts();
   // Mobile drawer state only: closed by default on mobile screens (< lg)
   // On desktop/laptop (>= lg), sidebar is permanently visible side-by-side
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
