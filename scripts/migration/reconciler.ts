@@ -262,7 +262,7 @@ export class MigrationReconciler {
     for (const c of companies.rows) {
       // Find max allocated bill number
       const billRes = await this.targetDb.query(
-        `SELECT MAX(NULLIF(regexp_replace(bill_number, '^[^0-9]+', '', 'g'), '')::INTEGER) as max_no
+        `SELECT MAX(NULLIF(substring(bill_number from '[0-9]{1,9}$'), '')::INTEGER) as max_no
          FROM public.bills WHERE company_id = $1;`,
         [c.id]
       );
@@ -271,7 +271,7 @@ export class MigrationReconciler {
 
       // Find max allocated quotation number
       const quoteRes = await this.targetDb.query(
-        `SELECT MAX(NULLIF(regexp_replace(quotation_number, '^[^0-9]+', '', 'g'), '')::INTEGER) as max_no
+        `SELECT MAX(NULLIF(substring(quotation_number from '[0-9]{1,9}$'), '')::INTEGER) as max_no
          FROM public.quotations WHERE company_id = $1;`,
         [c.id]
       );
@@ -280,7 +280,7 @@ export class MigrationReconciler {
 
       // Find max allocated gate pass number
       const gpRes = await this.targetDb.query(
-        `SELECT MAX(NULLIF(regexp_replace(gate_pass_number, '^[^0-9]+', '', 'g'), '')::INTEGER) as max_no
+        `SELECT MAX(NULLIF(substring(gate_pass_number from '[0-9]{1,9}$'), '')::INTEGER) as max_no
          FROM public.gate_passes WHERE company_id = $1;`,
         [c.id]
       );

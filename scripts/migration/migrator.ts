@@ -238,6 +238,12 @@ export class DataMigrator {
       });
 
       if (report.overallStatus === "PASSED") {
+        // A failed statement swallowed by a reconciler check aborts the transaction, and Postgres then turns
+        // COMMIT into a silent ROLLBACK. Prove the transaction is healthy and the report is clean first.
+        await client.query("SELECT 1;");
+        if (report.errors.length > 0) {
+          throw new Error(`[IMPORT ABORTED] Reconciliation reported errors: ${report.errors[0]}`);
+        }
         await client.query("COMMIT;");
       } else {
         await client.query("ROLLBACK;");
@@ -250,6 +256,16 @@ export class DataMigrator {
       throw err;
     } finally {
       client.release();
+    }
+
+    // Post-commit verification from a fresh connection: the data must really be there.
+    const postCommit = await new MigrationReconciler(this.targetPool).runReconciliation(sourceCounts, modeLabel, {
+      skipSessions: this.config.options?.skipSessions ?? true,
+    });
+    if (postCommit.overallStatus !== "PASSED") {
+      throw new Error(
+        `[POST-COMMIT VERIFICATION FAILED] Target does not match source after commit: ${postCommit.errors[0] || "unknown"}`
+      );
     }
 
     const summary = formatReconciliationSummary(report) +
