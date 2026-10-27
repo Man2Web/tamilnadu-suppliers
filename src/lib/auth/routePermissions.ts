@@ -23,4 +23,5 @@ export const ROUTE_PERMISSIONS = {
   operationsRead: ["bills:view", "dispatch:manage", "returns:process", "returns:record", "damages:record"],
   share: ["quotations:share", "quotations:view", "bills:view"],
   productImport: ["products:create", "products:write"],
+  recordsImport: ["bills:create"],
 } as const;

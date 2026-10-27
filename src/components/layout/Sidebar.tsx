@@ -17,6 +17,7 @@ import {
   Boxes,
   UserCog,
   ShieldCheck,
+  FileUp,
   X,
   ChevronDown,
 } from "lucide-react";
@@ -83,6 +84,7 @@ export default function Sidebar({ isOpen = false, onClose }: SidebarProps) {
       items: [
         { name: "Quotations", href: "/quotations", icon: FileText, permission: "quotations:view" },
         { name: "Bills & Invoices", href: "/bills", icon: Receipt, permission: "bills:view" },
+        { name: "Import Older Records", href: "/records/import", icon: FileUp, permission: "bills:create" },
       ],
     },
     {

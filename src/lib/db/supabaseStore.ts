@@ -1474,7 +1474,7 @@ export class SupabaseStore {
     const flatItems: BillItem[] = [];
 
     inputLines.forEach((it: any, itIdx: number) => {
-      const isNote = it.entryType === "note" || (!it.productId && (it.text || it.itemName));
+      const isNote = it.entryType === "note" || (it.entryType !== "product" && !it.productId && (it.text || it.itemName));
       const pos = it.position !== undefined ? Number(it.position) : itIdx + 1;
 
       if (isNote) {
